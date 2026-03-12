@@ -17,7 +17,7 @@ const (
 	// ScopeName is the instrumentation scope name for Tracer creation (OTel contrib guideline).
 	ScopeName             = "github.com/Marz32onE/instrumentation-go/otel-nats/otelnats"
 	instrumentationName    = ScopeName
-	instrumentationVersion = "0.1.10"
+	instrumentationVersion = "0.1.0"
 	messagingSystem        = "nats"
 )
 

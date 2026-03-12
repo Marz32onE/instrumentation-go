@@ -16,11 +16,11 @@ import (
 )
 
 // Client wraps *mongo.Client with OpenTelemetry instrumentation.
+// Tracer and propagator are read from otel globals (set via WithTracerProvider/WithPropagators at Connect).
 type Client struct {
 	*mongo.Client
 	serverAddr string
 	serverPort int
-	propagator propagation.TextMapPropagator
 }
 
 // ClientOption configures Connect/NewClient. Per OTel contrib: accept TracerProvider and Propagators.
@@ -70,17 +70,16 @@ func Connect(opts ...*options.ClientOptions) (*Client, error) {
 	return ConnectWithOptions(nil, opts...)
 }
 
-// ConnectWithOptions creates a Client with optional TracerProvider/Propagators.
+// ConnectWithOptions creates a Client. Passed-in TracerProvider/Propagators are set to otel globals; tracer/propagator are then read from globals.
 func ConnectWithOptions(traceOpts []ClientOption, opts ...*options.ClientOptions) (*Client, error) {
 	cfg := newClientConfig(traceOpts)
-	tp := cfg.TracerProvider
-	if tp == nil {
-		tp = otel.GetTracerProvider()
+	if cfg.TracerProvider != nil {
+		otel.SetTracerProvider(cfg.TracerProvider)
 	}
-	prop := cfg.Propagators
-	if prop == nil {
-		prop = otel.GetTextMapPropagator()
+	if cfg.Propagators != nil {
+		otel.SetTextMapPropagator(cfg.Propagators)
 	}
+	tp := otel.GetTracerProvider()
 	monitor := contribmongo.NewMonitor(contribmongo.WithTracerProvider(tp))
 	base := options.Client().SetMonitor(monitor)
 	merged := options.MergeClientOptions(append(opts, base)...)
@@ -89,7 +88,7 @@ func ConnectWithOptions(traceOpts []ClientOption, opts ...*options.ClientOptions
 		return nil, err
 	}
 	addr, port := parseServerFromURI(merged.GetURI())
-	return &Client{Client: mc, serverAddr: addr, serverPort: port, propagator: prop}, nil
+	return &Client{Client: mc, serverAddr: addr, serverPort: port}, nil
 }
 
 // NewClient connects to MongoDB using uri and returns an instrumented Client.
@@ -147,12 +146,11 @@ func parseServerFromURI(uri string) (addr string, port int) {
 	return addr, p
 }
 
-// Database returns a wrapped Database for document-level tracing (uses global TracerProvider).
+// Database returns a wrapped Database for document-level tracing (uses otel globals).
 func (c *Client) Database(name string, opts ...options.Lister[options.DatabaseOptions]) *Database {
 	return &Database{
 		Database:   c.Client.Database(name, opts...),
 		serverAddr: c.serverAddr,
 		serverPort: c.serverPort,
-		propagator: c.propagator,
 	}
 }

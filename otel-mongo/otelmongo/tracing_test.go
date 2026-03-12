@@ -15,7 +15,7 @@ import (
 )
 
 func init() {
-	// So that injectTraceIntoDocument(_, _, nil) and contextFromTraceMetadata(_, _, nil) use a working propagator in tests.
+	// So that injectTraceIntoDocument and contextFromTraceMetadata use a working propagator in tests (otel globals).
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
 }
 
@@ -79,7 +79,7 @@ func Test_injectTraceIntoDocument(t *testing.T) {
 		ctx := context.Background()
 		doc := bson.D{{Key: "x", Value: 1}}
 
-		out, err := injectTraceIntoDocument(ctx, doc, nil)
+		out, err := injectTraceIntoDocument(ctx, doc)
 		require.NoError(t, err)
 		require.Len(t, out, 1)
 		assert.Equal(t, "x", out[0].Key)
@@ -102,7 +102,7 @@ func Test_injectTraceIntoDocument(t *testing.T) {
 		defer span.End()
 
 		doc := bson.D{{Key: "x", Value: 1}}
-		out, err := injectTraceIntoDocument(ctx, doc, nil)
+		out, err := injectTraceIntoDocument(ctx, doc)
 		require.NoError(t, err)
 		require.GreaterOrEqual(t, len(out), 2)
 		var meta TraceMetadata
@@ -122,7 +122,7 @@ func Test_injectTraceIntoDocument(t *testing.T) {
 		ctx := context.Background()
 		ch := make(chan int)
 
-		_, err := injectTraceIntoDocument(ctx, ch, nil)
+		_, err := injectTraceIntoDocument(ctx, ch)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "marshal")
 	})
@@ -165,7 +165,7 @@ func Test_injectTraceIntoUpdate(t *testing.T) {
 		ctx := context.Background()
 		update := bson.D{{Key: "$set", Value: bson.D{{Key: "x", Value: 1}}}}
 
-		out, err := injectTraceIntoUpdate(ctx, update, nil)
+		out, err := injectTraceIntoUpdate(ctx, update)
 		require.NoError(t, err)
 		assert.Equal(t, update, out)
 	})
@@ -178,7 +178,7 @@ func Test_injectTraceIntoUpdate(t *testing.T) {
 		defer span.End()
 
 		update := bson.D{{Key: "$set", Value: bson.D{{Key: "status", Value: "ok"}}}}
-		out, err := injectTraceIntoUpdate(ctx, update, nil)
+		out, err := injectTraceIntoUpdate(ctx, update)
 		require.NoError(t, err)
 		outD, ok := out.(bson.D)
 		require.True(t, ok)
@@ -209,7 +209,7 @@ func Test_injectTraceIntoUpdate(t *testing.T) {
 		defer span.End()
 
 		replacement := bson.D{{Key: "name", Value: "foo"}}
-		out, err := injectTraceIntoUpdate(ctx, replacement, nil)
+		out, err := injectTraceIntoUpdate(ctx, replacement)
 		require.NoError(t, err)
 		outD, ok := out.(bson.D)
 		require.True(t, ok)

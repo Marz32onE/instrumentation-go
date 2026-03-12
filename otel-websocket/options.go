@@ -9,32 +9,29 @@ import (
 // Option configures a Conn.
 type Option func(*Conn)
 
-// WithPropagators sets the TextMapPropagator used to inject and extract
-// trace context. Defaults to otel.GetTextMapPropagator(). Aligns with OTel contrib naming (WithPropagators).
+// WithPropagators sets the TextMapPropagator; it is applied to otel.SetTextMapPropagator so globals are used for inject/extract.
 func WithPropagators(p propagation.TextMapPropagator) Option {
 	return func(c *Conn) {
 		if p != nil {
-			c.propagator = p
+			otel.SetTextMapPropagator(p)
 		}
 	}
 }
 
-// WithTracerProvider sets the TracerProvider used to create spans.
-// Defaults to otel.GetTracerProvider(). Per OTel contrib: accept TracerProvider, not Tracer.
+// WithTracerProvider sets the TracerProvider; it is applied to otel.SetTracerProvider so globals are used for tracing.
 func WithTracerProvider(tp trace.TracerProvider) Option {
 	return func(c *Conn) {
 		if tp != nil {
-			c.tracer = tp.Tracer(ScopeName, trace.WithInstrumentationVersion(SemVersion()))
+			otel.SetTracerProvider(tp)
 		}
 	}
 }
 
 func applyOptions(c *Conn, opts []Option) {
-	// Set defaults (OTel contrib: use global provider/propagator when not supplied).
-	c.propagator = otel.GetTextMapPropagator()
-	c.tracer = otel.GetTracerProvider().Tracer(ScopeName, trace.WithInstrumentationVersion(SemVersion()))
-
 	for _, o := range opts {
 		o(c)
 	}
+	// Always read tracer and propagator from otel globals (set by opts above or by process startup).
+	c.propagator = otel.GetTextMapPropagator()
+	c.tracer = otel.GetTracerProvider().Tracer(ScopeName, trace.WithInstrumentationVersion(SemVersion()))
 }

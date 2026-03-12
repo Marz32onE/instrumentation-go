@@ -25,16 +25,13 @@ type TraceMetadata struct {
 	Tracestate string `bson:"tracestate,omitempty"`
 }
 
-// traceMetadataFromContext extracts W3C trace context from ctx into TraceMetadata using prop.
-// When prop is nil, otel.GetTextMapPropagator() is used. Returns (nil, false) when the span context in ctx is not valid.
-func traceMetadataFromContext(ctx context.Context, prop propagation.TextMapPropagator) (*TraceMetadata, bool) {
+// traceMetadataFromContext extracts W3C trace context from ctx into TraceMetadata using otel.GetTextMapPropagator().
+func traceMetadataFromContext(ctx context.Context) (*TraceMetadata, bool) {
 	spanCtx := trace.SpanFromContext(ctx).SpanContext()
 	if !spanCtx.IsValid() {
 		return nil, false
 	}
-	if prop == nil {
-		prop = otel.GetTextMapPropagator()
-	}
+	prop := otel.GetTextMapPropagator()
 	carrier := propagation.MapCarrier{}
 	prop.Inject(ctx, carrier)
 	return &TraceMetadata{
@@ -43,9 +40,9 @@ func traceMetadataFromContext(ctx context.Context, prop propagation.TextMapPropa
 	}, true
 }
 
-// injectTraceIntoDocument marshals document to bson.D and, when the span context
-// in ctx is valid, appends an "_oteltrace" field using prop (nil => global). The original document is not modified.
-func injectTraceIntoDocument(ctx context.Context, document any, prop propagation.TextMapPropagator) (bson.D, error) {
+// injectTraceIntoDocument marshals document to bson.D and, when the span context in ctx is valid,
+// appends an "_oteltrace" field using otel.GetTextMapPropagator(). The original document is not modified.
+func injectTraceIntoDocument(ctx context.Context, document any) (bson.D, error) {
 	raw, err := bson.Marshal(document)
 	if err != nil {
 		return nil, fmt.Errorf("otelmongo: marshal document: %w", err)
@@ -56,7 +53,7 @@ func injectTraceIntoDocument(ctx context.Context, document any, prop propagation
 		return nil, fmt.Errorf("otelmongo: unmarshal document: %w", err)
 	}
 
-	meta, ok := traceMetadataFromContext(ctx, prop)
+	meta, ok := traceMetadataFromContext(ctx)
 	if !ok {
 		return doc, nil
 	}
@@ -97,15 +94,12 @@ func ContextFromDocument(ctx context.Context, raw bson.Raw) context.Context {
 	if !ok {
 		return ctx
 	}
-	return contextFromTraceMetadata(ctx, meta, otel.GetTextMapPropagator())
+	return contextFromTraceMetadata(ctx, meta)
 }
 
-// contextFromTraceMetadata injects the remote span context encoded in meta into
-// ctx using prop and returns the enriched context. When prop is nil, otel.GetTextMapPropagator() is used.
-func contextFromTraceMetadata(ctx context.Context, meta *TraceMetadata, prop propagation.TextMapPropagator) context.Context {
-	if prop == nil {
-		prop = otel.GetTextMapPropagator()
-	}
+// contextFromTraceMetadata injects the remote span context encoded in meta into ctx using otel.GetTextMapPropagator().
+func contextFromTraceMetadata(ctx context.Context, meta *TraceMetadata) context.Context {
+	prop := otel.GetTextMapPropagator()
 	carrier := propagation.MapCarrier{
 		"traceparent": meta.Traceparent,
 	}
@@ -116,15 +110,11 @@ func contextFromTraceMetadata(ctx context.Context, meta *TraceMetadata, prop pro
 }
 
 // injectTraceIntoUpdate inspects update, and when ctx carries a valid span context,
-// embeds the trace metadata into the update document using prop (nil => global).
-//   - For operator updates (first key starts with "$") the metadata is added to the
-//     "$set" operator so it is written to the document on every update.
+// embeds the trace metadata using otel.GetTextMapPropagator().
+//   - For operator updates (first key starts with "$") the metadata is added to "$set".
 //   - For replacement documents the metadata is appended as a top-level field.
-//
-// The original update value is returned unchanged when no valid span context is
-// present or when the update cannot be marshalled to bson.D.
-func injectTraceIntoUpdate(ctx context.Context, update any, prop propagation.TextMapPropagator) (any, error) {
-	meta, ok := traceMetadataFromContext(ctx, prop)
+func injectTraceIntoUpdate(ctx context.Context, update any) (any, error) {
+	meta, ok := traceMetadataFromContext(ctx)
 	if !ok {
 		return update, nil
 	}

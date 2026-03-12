@@ -35,7 +35,7 @@ func TestNewCollection(t *testing.T) {
 	// We only need to verify that NewCollection returns a non-nil wrapper
 	// with the correct tracer; we do not need a live server for this.
 	raw := &mongo.Collection{}
-	coll := NewCollection(raw, tracer, nil)
+	coll := NewCollection(raw, tracer)
 	require.NotNil(t, coll)
 	assert.Equal(t, raw, coll.Collection)
 	assert.NotNil(t, coll.tracer)

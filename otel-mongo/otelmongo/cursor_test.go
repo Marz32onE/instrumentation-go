@@ -18,7 +18,7 @@ import (
 func buildDocWithTrace(t *testing.T, ctx context.Context) bson.Raw { //nolint:revive // ctx is second parameter intentionally for test helpers
 	t.Helper()
 	doc := bson.D{{Key: "value", Value: "test"}}
-	injected, err := injectTraceIntoDocument(ctx, doc, nil)
+	injected, err := injectTraceIntoDocument(ctx, doc)
 	require.NoError(t, err)
 	raw, err := bson.Marshal(injected)
 	require.NoError(t, err)
@@ -44,7 +44,7 @@ func TestCursorDecodeWithContext_ExtractsTrace(t *testing.T) {
 
 	require.True(t, cursor.Next(context.Background()))
 
-	c := &Cursor{Cursor: cursor, tracer: tracer, parentCtx: ctx, propagator: nil}
+	c := &Cursor{Cursor: cursor, tracer: tracer, parentCtx: ctx}
 
 	var result bson.D
 	enriched, err := c.DecodeWithContext(context.Background(), &result)
@@ -72,7 +72,7 @@ func TestCursorDecodeWithContext_NoTrace(t *testing.T) {
 	require.True(t, cursor.Next(context.Background()))
 
 	baseCtx := context.Background()
-	c := &Cursor{Cursor: cursor, tracer: tracer, parentCtx: baseCtx, propagator: nil}
+	c := &Cursor{Cursor: cursor, tracer: tracer, parentCtx: baseCtx}
 
 	var result bson.D
 	enriched, err := c.DecodeWithContext(baseCtx, &result)
@@ -103,7 +103,6 @@ func TestSingleResultDecodeLinksOriginTrace(t *testing.T) {
 		tracer:       tracer,
 		span:         findSpan,
 		ctx:          ctx,
-		propagator:   nil,
 	}
 
 	var out bson.D
@@ -148,7 +147,6 @@ func TestSingleResultTraceContext(t *testing.T) {
 		tracer:       tracer,
 		span:         findSpan,
 		ctx:          ctx,
-		propagator:   nil,
 	}
 
 	enriched := wrapped.TraceContext()
@@ -172,7 +170,7 @@ func TestCursorDecode(t *testing.T) {
 
 	require.True(t, cursor.Next(context.Background()))
 
-	c := &Cursor{Cursor: cursor, tracer: tracer, parentCtx: context.Background(), propagator: nil}
+	c := &Cursor{Cursor: cursor, tracer: tracer, parentCtx: context.Background()}
 
 	var result bson.D
 	err = c.Decode(&result)
@@ -198,7 +196,6 @@ func TestSingleResultRaw(t *testing.T) {
 		tracer:       tracer,
 		span:         findSpan,
 		ctx:          ctx,
-		propagator:   nil,
 	}
 
 	raw, err := wrapped.Raw()
@@ -235,7 +232,6 @@ func TestSingleResultDecodeSpanEndedOnce(t *testing.T) {
 		tracer:       tracer,
 		span:         findSpan,
 		ctx:          ctx,
-		propagator:   nil,
 	}
 
 	// Call Decode twice – span should be ended only once.

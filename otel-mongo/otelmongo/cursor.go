@@ -6,17 +6,14 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
-	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
 
-// Cursor wraps *mongo.Cursor so that callers can optionally extract the trace
-// context stored in each document as they iterate.
+// Cursor wraps *mongo.Cursor; trace extract uses otel.GetTextMapPropagator().
 type Cursor struct {
 	*mongo.Cursor
-	tracer     trace.Tracer
-	parentCtx  context.Context
-	propagator propagation.TextMapPropagator
+	tracer    trace.Tracer
+	parentCtx context.Context
 }
 
 // DecodeWithContext decodes the current document into val and returns a context
@@ -31,7 +28,7 @@ func (c *Cursor) DecodeWithContext(ctx context.Context, val any) (context.Contex
 	}
 	raw := c.Current
 	if meta, ok := extractMetadataFromRaw(raw); ok {
-		ctx = contextFromTraceMetadata(ctx, meta, c.propagator)
+		ctx = contextFromTraceMetadata(ctx, meta)
 	}
 	return ctx, nil
 }
@@ -42,15 +39,13 @@ func (c *Cursor) Decode(val any) error {
 	return c.Cursor.Decode(val)
 }
 
-// SingleResult wraps *mongo.SingleResult so that the stored trace context can
-// be propagated as a span link and extracted by callers.
+// SingleResult wraps *mongo.SingleResult; trace extract uses otel.GetTextMapPropagator().
 type SingleResult struct {
 	*mongo.SingleResult
-	tracer     trace.Tracer
-	span      trace.Span
-	ctx       context.Context
-	propagator propagation.TextMapPropagator
-	endOnce   sync.Once
+	tracer   trace.Tracer
+	span     trace.Span
+	ctx      context.Context
+	endOnce  sync.Once
 }
 
 // endSpan ensures the associated span is ended exactly once.
@@ -71,7 +66,7 @@ func (r *SingleResult) Decode(v any) error {
 	}
 
 	if meta, ok := extractMetadataFromRaw(raw); ok {
-		originCtx := contextFromTraceMetadata(context.Background(), meta, r.propagator)
+		originCtx := contextFromTraceMetadata(context.Background(), meta)
 		originSpanCtx := trace.SpanContextFromContext(originCtx)
 		if originSpanCtx.IsValid() {
 			r.span.AddLink(trace.Link{SpanContext: originSpanCtx})
@@ -92,7 +87,7 @@ func (r *SingleResult) TraceContext() context.Context {
 		return r.ctx
 	}
 	if meta, ok := extractMetadataFromRaw(raw); ok {
-		return contextFromTraceMetadata(r.ctx, meta, r.propagator)
+		return contextFromTraceMetadata(r.ctx, meta)
 	}
 	return r.ctx
 }
