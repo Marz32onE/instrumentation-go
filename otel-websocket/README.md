@@ -1,8 +1,8 @@
 # otelwebsocket
 
-`otelwebsocket` wraps [gorilla/websocket](https://github.com/gorilla/websocket)
-and adds [OpenTelemetry](https://opentelemetry.io/) distributed-tracing support
-by propagating the **W3C Trace Context** inside the WebSocket message body.
+`otelwebsocket` wraps [gorilla/websocket](https://github.com/gorilla/websocket) and adds [OpenTelemetry](https://opentelemetry.io/) distributed-tracing support by propagating the **W3C Trace Context** inside the WebSocket message body.
+
+Per [OTel Go Contrib](https://github.com/open-telemetry/opentelemetry-go-contrib/tree/main/instrumentation): the package accepts **TracerProvider** and **Propagators** via options and defaults to `otel.GetTracerProvider()` / `otel.GetTextMapPropagator()`. It does **not** provide InitTracer. Set the global provider and propagator at process startup (see **example/**).
 
 ## How it works
 
@@ -13,13 +13,13 @@ by propagating the **W3C Trace Context** inside the WebSocket message body.
 
 ```
 ┌─────────────────────────────────────┐
-│  WebSocket message body (JSON)      │
-│  {                                  │
-│    "headers": {                     │
-│      "traceparent": "00-abc…-01"    │
-│    },                               │
-│    "payload": <original bytes>      │
-│  }                                  │
+│  WebSocket message body (JSON)       │
+│  {                                   │
+│    "headers": {                      │
+│      "traceparent": "00-abc…-01"     │
+│    },                                │
+│    "payload": <original bytes>       │
+│  }                                   │
 └─────────────────────────────────────┘
 ```
 
@@ -30,6 +30,10 @@ go get github.com/Marz32onE/otelwebsocket
 ```
 
 ## Quick start
+
+**1. Set global TracerProvider and propagator at startup** (see **example/main.go** for a full pattern).
+
+**2. Use the connection:**
 
 ```go
 // ── Client (sender) ──────────────────────────────────────────────────────────
@@ -63,7 +67,7 @@ defer childSpan.End()
 ```go
 conn := otelwebsocket.NewConn(raw,
     // Use a custom propagator (default: otel.GetTextMapPropagator()).
-    otelwebsocket.WithPropagator(myPropagator),
+    otelwebsocket.WithPropagators(myPropagator),
     // Use a custom TracerProvider (default: otel.GetTracerProvider()).
     otelwebsocket.WithTracerProvider(myTracerProvider),
 )
@@ -77,7 +81,4 @@ conn, resp, err := otelwebsocket.Dial(ctx, serverURL, nil)
 
 ## Backward compatibility
 
-If a message was **not** produced by this library (i.e. it is not a valid
-JSON envelope), `ReadMessage` returns the raw bytes unchanged and no span
-context is injected into the returned context.  This makes it safe to
-introduce `otelwebsocket` incrementally alongside plain WebSocket messages.
+If a message was **not** produced by this library (i.e. it is not a valid JSON envelope), `ReadMessage` returns the raw bytes unchanged and no span context is injected into the returned context. This makes it safe to introduce `otelwebsocket` incrementally alongside plain WebSocket messages.

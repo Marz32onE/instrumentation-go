@@ -7,10 +7,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 )
+
+func init() {
+	// So that injectTraceIntoDocument(_, _, nil) and contextFromTraceMetadata(_, _, nil) use a working propagator in tests.
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
+}
 
 func Test_extractMetadataFromRaw(t *testing.T) {
 	t.Run("valid_document_returns_metadata", func(t *testing.T) {
@@ -72,7 +79,7 @@ func Test_injectTraceIntoDocument(t *testing.T) {
 		ctx := context.Background()
 		doc := bson.D{{Key: "x", Value: 1}}
 
-		out, err := injectTraceIntoDocument(ctx, doc)
+		out, err := injectTraceIntoDocument(ctx, doc, nil)
 		require.NoError(t, err)
 		require.Len(t, out, 1)
 		assert.Equal(t, "x", out[0].Key)
@@ -95,7 +102,7 @@ func Test_injectTraceIntoDocument(t *testing.T) {
 		defer span.End()
 
 		doc := bson.D{{Key: "x", Value: 1}}
-		out, err := injectTraceIntoDocument(ctx, doc)
+		out, err := injectTraceIntoDocument(ctx, doc, nil)
 		require.NoError(t, err)
 		require.GreaterOrEqual(t, len(out), 2)
 		var meta TraceMetadata
@@ -108,14 +115,14 @@ func Test_injectTraceIntoDocument(t *testing.T) {
 			}
 		}
 		assert.NotEmpty(t, meta.Traceparent)
-		assert.Equal(t, span.SpanContext().TraceID().String(), meta.Traceparent[3:3+32])
+		assert.Equal(t, span.SpanContext().TraceID().String(), meta.Traceparent[3:3+32]) // traceparent format: version-traceid-spanid-flags
 	})
 
 	t.Run("non_marshalable_document_returns_error", func(t *testing.T) {
 		ctx := context.Background()
 		ch := make(chan int)
 
-		_, err := injectTraceIntoDocument(ctx, ch)
+		_, err := injectTraceIntoDocument(ctx, ch, nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "marshal")
 	})
@@ -158,7 +165,7 @@ func Test_injectTraceIntoUpdate(t *testing.T) {
 		ctx := context.Background()
 		update := bson.D{{Key: "$set", Value: bson.D{{Key: "x", Value: 1}}}}
 
-		out, err := injectTraceIntoUpdate(ctx, update)
+		out, err := injectTraceIntoUpdate(ctx, update, nil)
 		require.NoError(t, err)
 		assert.Equal(t, update, out)
 	})
@@ -171,7 +178,7 @@ func Test_injectTraceIntoUpdate(t *testing.T) {
 		defer span.End()
 
 		update := bson.D{{Key: "$set", Value: bson.D{{Key: "status", Value: "ok"}}}}
-		out, err := injectTraceIntoUpdate(ctx, update)
+		out, err := injectTraceIntoUpdate(ctx, update, nil)
 		require.NoError(t, err)
 		outD, ok := out.(bson.D)
 		require.True(t, ok)
@@ -202,7 +209,7 @@ func Test_injectTraceIntoUpdate(t *testing.T) {
 		defer span.End()
 
 		replacement := bson.D{{Key: "name", Value: "foo"}}
-		out, err := injectTraceIntoUpdate(ctx, replacement)
+		out, err := injectTraceIntoUpdate(ctx, replacement, nil)
 		require.NoError(t, err)
 		outD, ok := out.(bson.D)
 		require.True(t, ok)

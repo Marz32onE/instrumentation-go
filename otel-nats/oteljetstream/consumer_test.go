@@ -61,8 +61,8 @@ func TestFetchReturnsMessagesWithTraceContext(t *testing.T) {
 	sr := tracetest.NewSpanRecorder()
 	tp := trace.NewTracerProvider(trace.WithSpanProcessor(sr))
 	prop := propagation.NewCompositeTextMapPropagator(propagation.TraceContext{})
+	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(prop)
-	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(tp))
 
 	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
@@ -139,8 +139,8 @@ func TestConsumeTraceContext(t *testing.T) {
 	tp := trace.NewTracerProvider(trace.WithSpanProcessor(sr))
 	prop := propagation.NewCompositeTextMapPropagator(propagation.TraceContext{})
 
+	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(prop)
-	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(tp))
 	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
@@ -189,8 +189,8 @@ func TestMessagesNextTraceContext(t *testing.T) {
 	tp := trace.NewTracerProvider()
 	prop := propagation.NewCompositeTextMapPropagator(propagation.TraceContext{})
 
+	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(prop)
-	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(tp))
 	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
@@ -231,8 +231,8 @@ func TestFetchNoWaitReturnsTraceContext(t *testing.T) {
 	tp := trace.NewTracerProvider(trace.WithSpanProcessor(tracetest.NewSpanRecorder()))
 	prop := propagation.NewCompositeTextMapPropagator(propagation.TraceContext{})
 
+	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(prop)
-	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(tp))
 	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
@@ -273,8 +273,8 @@ func TestFetchBytesTraceContext(t *testing.T) {
 	tp := trace.NewTracerProvider()
 	prop := propagation.NewCompositeTextMapPropagator(propagation.TraceContext{})
 
+	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(prop)
-	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(tp))
 	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
@@ -309,7 +309,7 @@ func TestFetchBytesTraceContext(t *testing.T) {
 
 func TestConsumerInfo(t *testing.T) {
 	url := startJetStreamServer(t)
-	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(trace.NewTracerProvider()))
+	otel.SetTracerProvider(trace.NewTracerProvider())
 	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
@@ -339,7 +339,7 @@ func TestConsumerInfo(t *testing.T) {
 
 func TestConsumerCachedInfo(t *testing.T) {
 	url := startJetStreamServer(t)
-	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(trace.NewTracerProvider()))
+	otel.SetTracerProvider(trace.NewTracerProvider())
 	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()

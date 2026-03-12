@@ -10,6 +10,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
@@ -34,7 +35,7 @@ func TestNewCollection(t *testing.T) {
 	// We only need to verify that NewCollection returns a non-nil wrapper
 	// with the correct tracer; we do not need a live server for this.
 	raw := &mongo.Collection{}
-	coll := NewCollection(raw, tracer)
+	coll := NewCollection(raw, tracer, nil)
 	require.NotNil(t, coll)
 	assert.Equal(t, raw, coll.Collection)
 	assert.NotNil(t, coll.tracer)
@@ -57,7 +58,7 @@ func TestCollectionInsertOneAndFind(t *testing.T) {
 	tp, _ := integrationTP(t)
 	tracer := tp.Tracer("otelmongo", trace.WithInstrumentationVersion("0.1.0"))
 
-	_, _ = InitTracer("", WithTracerProviderInit(tp))
+	otel.SetTracerProvider(tp)
 	client, err := Connect(options.Client().ApplyURI(uri))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
@@ -90,7 +91,7 @@ func TestCollectionInsertMany_StoresOtelTrace(t *testing.T) {
 	tp, _ := integrationTP(t)
 	tracer := tp.Tracer("otelmongo", trace.WithInstrumentationVersion("0.1.0"))
 
-	_, _ = InitTracer("", WithTracerProviderInit(tp))
+	otel.SetTracerProvider(tp)
 	client, err := Connect(options.Client().ApplyURI(uri))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
@@ -126,7 +127,7 @@ func TestCollectionReplaceOne_StoresOtelTrace(t *testing.T) {
 	tp, _ := integrationTP(t)
 	tracer := tp.Tracer("otelmongo", trace.WithInstrumentationVersion("0.1.0"))
 
-	_, _ = InitTracer("", WithTracerProviderInit(tp))
+	otel.SetTracerProvider(tp)
 	client, err := Connect(options.Client().ApplyURI(uri))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
@@ -160,7 +161,7 @@ func TestCollectionUpdateOne_InjectTrace(t *testing.T) {
 	tp, sr := integrationTP(t)
 	tracer := tp.Tracer("otelmongo", trace.WithInstrumentationVersion("0.1.0"))
 
-	_, _ = InitTracer("", WithTracerProviderInit(tp))
+	otel.SetTracerProvider(tp)
 	client, err := Connect(options.Client().ApplyURI(uri))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
@@ -196,7 +197,7 @@ func TestCollectionDeleteOne_OneRoundTrip(t *testing.T) {
 	uri := requireMongoDB(t)
 	tp, sr := integrationTP(t)
 
-	_, _ = InitTracer("", WithTracerProviderInit(tp))
+	otel.SetTracerProvider(tp)
 	client, err := Connect(options.Client().ApplyURI(uri))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
@@ -226,7 +227,7 @@ func TestCollectionDeleteOne_OneRoundTrip(t *testing.T) {
 func TestCollectionCountDocuments(t *testing.T) {
 	uri := requireMongoDB(t)
 	tp, _ := integrationTP(t)
-	_, _ = InitTracer("", WithTracerProviderInit(tp))
+	otel.SetTracerProvider(tp)
 	client, err := Connect(options.Client().ApplyURI(uri))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
@@ -249,7 +250,7 @@ func TestCollectionUpdateByID_InjectTrace(t *testing.T) {
 	uri := requireMongoDB(t)
 	tp, sr := integrationTP(t)
 	tracer := tp.Tracer("otelmongo", trace.WithInstrumentationVersion("0.1.0"))
-	_, _ = InitTracer("", WithTracerProviderInit(tp))
+	otel.SetTracerProvider(tp)
 	client, err := Connect(options.Client().ApplyURI(uri))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
@@ -280,7 +281,7 @@ func TestCollectionUpdateByID_InjectTrace(t *testing.T) {
 func TestCollectionDeleteOneByID(t *testing.T) {
 	uri := requireMongoDB(t)
 	tp, sr := integrationTP(t)
-	_, _ = InitTracer("", WithTracerProviderInit(tp))
+	otel.SetTracerProvider(tp)
 	client, err := Connect(options.Client().ApplyURI(uri))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
@@ -309,7 +310,7 @@ func TestCollectionDeleteOneByID(t *testing.T) {
 func TestCollectionFindOneByID(t *testing.T) {
 	uri := requireMongoDB(t)
 	tp, _ := integrationTP(t)
-	_, _ = InitTracer("", WithTracerProviderInit(tp))
+	otel.SetTracerProvider(tp)
 	client, err := Connect(options.Client().ApplyURI(uri))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
@@ -333,7 +334,7 @@ func TestCollectionFindOneByID(t *testing.T) {
 func TestCollectionFindByIDs(t *testing.T) {
 	uri := requireMongoDB(t)
 	tp, _ := integrationTP(t)
-	_, _ = InitTracer("", WithTracerProviderInit(tp))
+	otel.SetTracerProvider(tp)
 	client, err := Connect(options.Client().ApplyURI(uri))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
@@ -360,7 +361,7 @@ func TestCollectionFindByIDs(t *testing.T) {
 func TestCollectionBulkWrite(t *testing.T) {
 	uri := requireMongoDB(t)
 	tp, sr := integrationTP(t)
-	_, _ = InitTracer("", WithTracerProviderInit(tp))
+	otel.SetTracerProvider(tp)
 	client, err := Connect(options.Client().ApplyURI(uri))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })

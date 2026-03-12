@@ -2,7 +2,6 @@ package otelmongo
 
 import (
 	"context"
-	"errors"
 	"net/url"
 	"strconv"
 	"strings"
@@ -16,15 +15,13 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// Client wraps *mongo.Client with OpenTelemetry instrumentation. Call InitTracer once at startup.
+// Client wraps *mongo.Client with OpenTelemetry instrumentation.
 type Client struct {
 	*mongo.Client
 	serverAddr string
 	serverPort int
+	propagator propagation.TextMapPropagator
 }
-
-// ErrInitTracerRequired is returned when Connect is called before InitTracer.
-var ErrInitTracerRequired = errors.New("otelmongo: InitTracer must be called before Connect")
 
 // ClientOption configures Connect/NewClient. Per OTel contrib: accept TracerProvider and Propagators.
 type ClientOption interface {
@@ -68,22 +65,21 @@ func newClientConfig(opts []ClientOption) *clientConfig {
 
 // Connect creates a new Client with the given configuration options, with OpenTelemetry instrumentation.
 // Signature aligns with mongo.Connect(opts ...*options.ClientOptions). TracerProvider and Propagators default to global.
-// InitTracer must be called first or Connect returns ErrInitTracerRequired.
+// Set them at process startup (see example/) or pass WithTracerProvider/WithPropagators via ConnectWithOptions.
 func Connect(opts ...*options.ClientOptions) (*Client, error) {
 	return ConnectWithOptions(nil, opts...)
 }
 
 // ConnectWithOptions creates a Client with optional TracerProvider/Propagators.
 func ConnectWithOptions(traceOpts []ClientOption, opts ...*options.ClientOptions) (*Client, error) {
-	if !isTracerInitialized() {
-		if _, err := InitTracer("", nil); err != nil {
-			return nil, err
-		}
-	}
 	cfg := newClientConfig(traceOpts)
 	tp := cfg.TracerProvider
 	if tp == nil {
 		tp = otel.GetTracerProvider()
+	}
+	prop := cfg.Propagators
+	if prop == nil {
+		prop = otel.GetTextMapPropagator()
 	}
 	monitor := contribmongo.NewMonitor(contribmongo.WithTracerProvider(tp))
 	base := options.Client().SetMonitor(monitor)
@@ -93,11 +89,11 @@ func ConnectWithOptions(traceOpts []ClientOption, opts ...*options.ClientOptions
 		return nil, err
 	}
 	addr, port := parseServerFromURI(merged.GetURI())
-	return &Client{Client: mc, serverAddr: addr, serverPort: port}, nil
+	return &Client{Client: mc, serverAddr: addr, serverPort: port, propagator: prop}, nil
 }
 
 // NewClient connects to MongoDB using uri and returns an instrumented Client.
-// InitTracer must be called first. For custom TracerProvider/Propagators pass ClientOptions.
+// For custom TracerProvider/Propagators pass ClientOptions.
 func NewClient(uri string, traceOpts ...ClientOption) (*Client, error) {
 	return ConnectWithOptions(traceOpts, options.Client().ApplyURI(uri))
 }
@@ -157,5 +153,6 @@ func (c *Client) Database(name string, opts ...options.Lister[options.DatabaseOp
 		Database:   c.Client.Database(name, opts...),
 		serverAddr: c.serverAddr,
 		serverPort: c.serverPort,
+		propagator: c.propagator,
 	}
 }

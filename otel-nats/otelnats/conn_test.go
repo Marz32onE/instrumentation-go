@@ -60,8 +60,8 @@ func TestW3CPropagationRoundtrip(t *testing.T) {
 	url := startServer(t)
 	tp, _ := newTestProvider()
 	prop := propagation.NewCompositeTextMapPropagator(propagation.TraceContext{})
+	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(prop)
-	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(tp))
 
 	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
@@ -98,7 +98,7 @@ func TestW3CPropagationRoundtrip(t *testing.T) {
 func TestPublishCreatesProducerSpan(t *testing.T) {
 	url := startServer(t)
 	tp, sr := newTestProvider()
-	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(tp))
+	otel.SetTracerProvider(tp)
 	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
@@ -119,7 +119,7 @@ func TestPublishCreatesProducerSpan(t *testing.T) {
 func TestPublishMsgCreatesProducerSpan(t *testing.T) {
 	url := startServer(t)
 	tp, sr := newTestProvider()
-	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(tp))
+	otel.SetTracerProvider(tp)
 	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
@@ -140,7 +140,7 @@ func TestSubscribeExtractsTraceContext(t *testing.T) {
 	prop := propagation.NewCompositeTextMapPropagator(propagation.TraceContext{})
 
 	otel.SetTextMapPropagator(prop)
-	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(tp))
+	otel.SetTracerProvider(tp)
 	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
@@ -181,7 +181,7 @@ func TestSubscribeExtractsTraceContext(t *testing.T) {
 func TestQueueSubscribeRecordsQueueName(t *testing.T) {
 	url := startServer(t)
 	tp, sr := newTestProvider()
-	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(tp))
+	otel.SetTracerProvider(tp)
 	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
@@ -210,7 +210,7 @@ func TestSubscribeConsumerSpanLinkedToProducer(t *testing.T) {
 	prop := propagation.NewCompositeTextMapPropagator(propagation.TraceContext{})
 
 	otel.SetTextMapPropagator(prop)
-	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(tp))
+	otel.SetTracerProvider(tp)
 	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
@@ -243,7 +243,7 @@ func TestSubscribeConsumerSpanLinkedToProducer(t *testing.T) {
 func TestRequestCreatesProducerSpanAndReturnsReply(t *testing.T) {
 	url := startServer(t)
 	tp, sr := newTestProvider()
-	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(tp))
+	otel.SetTracerProvider(tp)
 	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
@@ -267,7 +267,7 @@ func TestRequestCreatesProducerSpanAndReturnsReply(t *testing.T) {
 func TestTraceContextReturnsTracerAndPropagator(t *testing.T) {
 	url := startServer(t)
 	tp := trace.NewTracerProvider()
-	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(tp))
+	otel.SetTracerProvider(tp)
 	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()

@@ -1,122 +1,80 @@
-# natstrace
+# otel-nats（otelnats + oteljetstream）
 
 **[English](README.md)**
 
 ---
 
-OpenTelemetry 分散式追蹤包裝 [NATS](https://nats.io/) 與 [NATS JetStream](https://docs.nats.io/nats-concepts/jetstream)，對齊官方 `nats.go` / `nats.go/jetstream` API，並在訊息 header 中傳播 W3C Trace Context。
+為 [NATS](https://nats.io/) 與 [NATS JetStream](https://docs.nats.io/nats-concepts/jetstream) 提供 OpenTelemetry 追蹤，對齊官方 `nats.go` / `nats.go/jetstream` API，並在訊息 header 中傳播 W3C Trace Context。依 [OTel Go Contrib](https://github.com/open-telemetry/opentelemetry-go-contrib/tree/main/instrumentation) 規範：套件僅透過 option 接受 **TracerProvider** 與 **Propagators**，不提供 InitTracer；由應用程式在啟動時設定 global provider 與 propagator（見 **example/**）。
 
 ---
 
-## 架構概覽
+## 目錄結構
 
 ```
-pkg/natstrace/
-├── natstrace/           # Core NATS 連線與 Pub/Sub
-│   ├── otel.go          # InitTracer, ShutdownTracer, WithTracerProvider
-│   ├── connect.go       # Connect, ConnectTLS, ConnectWithCredentials
-│   ├── conn.go          # Conn: Publish, PublishMsg, Subscribe, QueueSubscribe, Request
-│   ├── propagation.go   # HeaderCarrier (nats.Header ↔ TextMapCarrier)
-│   └── doc.go
-├── jetstreamtrace/      # JetStream 串流與消費者
-│   ├── jetstream.go     # New, JetStream, Publish, CreateOrUpdateStream
-│   ├── stream.go        # Stream, Consumer, CreateOrUpdateConsumer
-│   ├── consumer.go      # Consume, Messages, Fetch, FetchBytes, FetchNoWait, MessageBatch
-│   └── doc.go
+otel-nats/
+├── otelnats/           # Core NATS：Connect、Conn、Publish、Subscribe、HeaderCarrier
+├── oteljetstream/      # JetStream：New、JetStream、Stream、Consumer、Consume、Messages、Fetch
+├── example/            # 如何建立 TracerProvider、設定 global、使用 otelnats/oteljetstream
 ├── go.mod
 └── README.md
 ```
-
-- **Tracer 與 Propagator**：由 **global** 提供。必須先呼叫 **`InitTracer(endpoint, attrs...)`**，之後 `Connect` / `ConnectTLS` / `ConnectWithCredentials` 與 `jetstreamtrace.New(conn)` 才會使用同一個 TracerProvider 與 TextMapPropagator（TraceContext + Baggage）。
-- **連線**：`natstrace.Connect(url, natsOpts)` 回傳 **`*natstrace.Conn`**，可當作 `*nats.Conn` 使用；Publish/Request 多一個 `context.Context`，Subscribe 的 handler 收到 **`MsgWithContext`**（m.Msg、m.Context()）；型別 **MsgHandler** 與 nats.MsgHandler 命名一致。
-- **JetStream**：`jetstreamtrace.New(conn)` 需要 **`*natstrace.Conn`**。Publish 接受 `context.Context`；Consume / Messages / Fetch 皆使用 **MsgWithContext**；handler 型別 **MsgHandler** 與 natstrace、nats.go 一致。
 
 ---
 
 ## 使用方式
 
-### 1. 初始化（必須在 Connect 之前）
+### 1. 初始化 Provider 與 Propagator（應用程式負責）
+
+在程式啟動時建立 TracerProvider（例如 OTLP）、設定 global provider 與 propagator 一次。完整可執行範例見 **example/main.go**。
 
 ```go
-import (
-    "go.opentelemetry.io/otel/attribute"
-    "github.com/Marz32onE/natstrace/natstrace"
-)
-
-func main() {
-    if err := natstrace.InitTracer("", attribute.String("service.name", "my-service")); err != nil {
-        log.Fatal(err)
-    }
-    defer natstrace.ShutdownTracer()
-
-    conn, err := natstrace.Connect(natsURL, nil)
-    if err != nil {
-        log.Fatal(err) // 若未呼叫 InitTracer 會得到 ErrInitTracerRequired
-    }
-    defer conn.Close()
-    // ...
-}
+otel.SetTracerProvider(tp)
+otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+    propagation.TraceContext{},
+    propagation.Baggage{},
+))
 ```
 
-- 空字串 `endpoint` 會使用環境變數 `OTEL_EXPORTER_OTLP_ENDPOINT` 或 `localhost:4317`。
-- HTTP 端點（例如 `http://...` 或 port 4318）會用 OTLP/HTTP，其餘用 OTLP/gRPC。
-
-### 2. Core NATS：Publish / Subscribe
+### 2. Core NATS：Connect、Publish、Subscribe
 
 ```go
-// Publish：傳入 context 以注入 trace
+conn, err := otelnats.Connect(natsURL, nil)
+defer conn.Close()
+
 conn.Publish(ctx, "subject", []byte("data"))
-conn.PublishMsg(ctx, msg)
-
-// Subscribe：handler 收到 MsgWithContext（m.Msg、m.Context()）
-conn.Subscribe("subject", func(m natstrace.MsgWithContext) {
-    // m.Context() 帶有從 header 解出的 trace
+conn.Subscribe("subject", func(m otelnats.MsgWithContext) {
+    // m.Msg、m.Context() — 從 header 解出的 trace
 })
-conn.QueueSubscribe("subject", "queue", handler)
-
-// Request
-reply, err := conn.Request(ctx, "subject", []byte("ping"), 2*time.Second)
 ```
+
+可選：使用 **ConnectWithOptions** 並傳入 **WithTracerProvider(tp)** 或 **WithPropagators(p)** 覆寫 global。
 
 ### 3. JetStream
 
 ```go
-js, err := jetstreamtrace.New(conn)
-// 建立 stream / consumer 後：
-cons.Consume(func(m jetstreamtrace.MsgWithContext) {
-    // m 實作 Msg（m.Data()、m.Ack()）；m.Context() 帶有從訊息 header 解出的 trace
+js, _ := oteljetstream.New(conn)
+cons.Consume(func(m oteljetstream.MsgWithContext) {
+    // m.Data()、m.Ack()、m.Context()
 })
-// 或
-iter, _ := cons.Messages()
-ctx, msg, err := iter.Next()
-// 或
-batch, _ := cons.Fetch(5, jetstream.FetchMaxWait(time.Second))
-for m := range batch.MessagesWithContext() {
-    // m.Data()、m.Ack()、m.Context() — MsgWithContext 對齊 jetstream.Msg
-}
 ```
 
-### 4. 底層 *nats.Conn
+### 4. 測試
 
-`conn.NatsConn()` 回傳 `*nats.Conn`，供需要原生 API 的程式使用。`conn.TraceContext()` 回傳目前使用的 Tracer 與 TextMapPropagator（jetstreamtrace 內部使用）。
+在 Connect 前設定 global provider（與必要時 propagator），無需 InitTracer。
+
+```go
+otel.SetTracerProvider(tp)
+otel.SetTextMapPropagator(prop) // 測試傳播時
+conn, err := otelnats.Connect(url, nil)
+```
 
 ---
 
-## API 約定
+## API 摘要
 
 | 項目 | 說明 |
 |------|------|
-| **InitTracer** | 必呼叫一次；設定 global TracerProvider 與 TextMapPropagator。 |
-| **Connect 簽名** | `Connect(url string, natsOpts []nats.Option)`，不再接受 WithTracerProvider / WithPropagator。 |
-| **錯誤** | 未先 InitTracer 就 `Connect` 會回傳 **`ErrInitTracerRequired`**。 |
-| **測試** | 測試中可呼叫 `natstrace.InitTracer("", natstrace.WithTracerProviderInit(tp))`（若有自訂 propagator 可先 `otel.SetTextMapPropagator(prop)`），再 `Connect(url, nil)`。 |
-
----
-
-## 依賴
-
-- `github.com/nats-io/nats.go`（含 JetStream）
-- `go.opentelemetry.io/otel` 與 SDK（trace、propagation、OTLP exporter）
-- Go 1.25+
-
-測試依賴 `github.com/stretchr/testify` 與 `nats-server/v2`（整合測試）。
+| **Connect** | 使用 `otel.GetTracerProvider()` 與 `otel.GetTextMapPropagator()`；可透過 ConnectWithOptions 以 option 覆寫。 |
+| **ConnectWithOptions** | 可傳入 **WithTracerProvider(tp)**、**WithPropagators(p)**。 |
+| **ScopeName / Version()** | 建立 Tracer 時使用（OTel contrib 規範）。 |
+| **測試** | 在 Connect 前呼叫 `otel.SetTracerProvider(tp)`（必要時 `otel.SetTextMapPropagator(prop)`）。 |

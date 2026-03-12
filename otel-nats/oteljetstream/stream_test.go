@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/Marz32onE/instrumentation-go/otel-nats/oteljetstream"
@@ -13,7 +14,7 @@ import (
 
 func TestStreamInfo(t *testing.T) {
 	url := startJetStreamServer(t)
-	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(trace.NewTracerProvider()))
+	otel.SetTracerProvider(trace.NewTracerProvider())
 	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
@@ -39,7 +40,7 @@ func TestStreamInfo(t *testing.T) {
 
 func TestStreamCachedInfo(t *testing.T) {
 	url := startJetStreamServer(t)
-	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(trace.NewTracerProvider()))
+	otel.SetTracerProvider(trace.NewTracerProvider())
 	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
@@ -65,7 +66,7 @@ func TestStreamCachedInfo(t *testing.T) {
 
 func TestStreamConsumerNames(t *testing.T) {
 	url := startJetStreamServer(t)
-	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(trace.NewTracerProvider()))
+	otel.SetTracerProvider(trace.NewTracerProvider())
 	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
@@ -100,7 +101,7 @@ func TestStreamConsumerNames(t *testing.T) {
 
 func TestStreamCreateConsumer(t *testing.T) {
 	url := startJetStreamServer(t)
-	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(trace.NewTracerProvider()))
+	otel.SetTracerProvider(trace.NewTracerProvider())
 	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
@@ -130,7 +131,7 @@ func TestStreamCreateConsumer(t *testing.T) {
 
 func TestStreamDeleteConsumer(t *testing.T) {
 	url := startJetStreamServer(t)
-	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(trace.NewTracerProvider()))
+	otel.SetTracerProvider(trace.NewTracerProvider())
 	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
@@ -163,7 +164,7 @@ func TestStreamDeleteConsumer(t *testing.T) {
 
 func TestJetStreamDeleteStream(t *testing.T) {
 	url := startJetStreamServer(t)
-	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(trace.NewTracerProvider()))
+	otel.SetTracerProvider(trace.NewTracerProvider())
 	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()

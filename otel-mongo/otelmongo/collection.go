@@ -6,6 +6,8 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -18,12 +20,16 @@ type Collection struct {
 	tracer     trace.Tracer
 	serverAddr string
 	serverPort int
+	propagator propagation.TextMapPropagator
 }
 
 // NewCollection wraps an existing *mongo.Collection with trace propagation
-// support using the supplied tracer. Server address/port are left empty.
-func NewCollection(coll *mongo.Collection, tracer trace.Tracer) *Collection {
-	return &Collection{Collection: coll, tracer: tracer}
+// support using the supplied tracer and propagator. Server address/port are left empty.
+func NewCollection(coll *mongo.Collection, tracer trace.Tracer, propagator propagation.TextMapPropagator) *Collection {
+	if propagator == nil {
+		propagator = otel.GetTextMapPropagator()
+	}
+	return &Collection{Collection: coll, tracer: tracer, propagator: propagator}
 }
 
 // dbAndColl returns the database name and collection name for semconv attributes.
@@ -39,7 +45,7 @@ func (c *Collection) dbAndColl() (dbName, collName string) {
 // The active trace context from ctx is serialised into the document under the
 // "_oteltrace" field before the insert. otelmongo already creates the command span.
 func (c *Collection) InsertOne(ctx context.Context, document any, opts ...options.Lister[options.InsertOneOptions]) (*mongo.InsertOneResult, error) {
-	docWithTrace, err := injectTraceIntoDocument(ctx, document)
+	docWithTrace, err := injectTraceIntoDocument(ctx, document, c.propagator)
 	if err != nil {
 		return nil, fmt.Errorf("otelmongo: inject trace: %w", err)
 	}
@@ -52,7 +58,7 @@ func (c *Collection) InsertOne(ctx context.Context, document any, opts ...option
 func (c *Collection) InsertMany(ctx context.Context, documents []any, opts ...options.Lister[options.InsertManyOptions]) (*mongo.InsertManyResult, error) {
 	docsWithTrace := make([]any, 0, len(documents))
 	for _, doc := range documents {
-		d, err := injectTraceIntoDocument(ctx, doc)
+		d, err := injectTraceIntoDocument(ctx, doc, c.propagator)
 		if err != nil {
 			return nil, fmt.Errorf("otelmongo: inject trace: %w", err)
 		}
@@ -77,7 +83,7 @@ func (c *Collection) Find(ctx context.Context, filter any, opts ...options.Liste
 	if err != nil {
 		return nil, err
 	}
-	return &Cursor{Cursor: cursor, tracer: c.tracer, parentCtx: ctx}, nil
+	return &Cursor{Cursor: cursor, tracer: c.tracer, parentCtx: ctx, propagator: c.propagator}, nil
 }
 
 // FindOne executes a find command returning at most one document.
@@ -91,7 +97,7 @@ func (c *Collection) FindOne(ctx context.Context, filter any, opts ...options.Li
 		trace.WithAttributes(dbAttributes(dbName, collName, "findOne", 0, c.serverAddr, c.serverPort)...),
 	)
 	sr := c.Collection.FindOne(ctx, filter, opts...)
-	return &SingleResult{SingleResult: sr, tracer: c.tracer, span: span, ctx: ctx}
+	return &SingleResult{SingleResult: sr, tracer: c.tracer, span: span, ctx: ctx, propagator: c.propagator}
 }
 
 // UpdateOne injects the current trace context into the update so the document's
@@ -105,7 +111,7 @@ func (c *Collection) UpdateOne(ctx context.Context, filter any, update any, opts
 	)
 	defer span.End()
 
-	updateWithTrace, err := injectTraceIntoUpdate(ctx, update)
+	updateWithTrace, err := injectTraceIntoUpdate(ctx, update, c.propagator)
 	if err != nil {
 		updateWithTrace = update
 	}
@@ -127,7 +133,7 @@ func (c *Collection) UpdateMany(ctx context.Context, filter any, update any, opt
 	)
 	defer span.End()
 
-	updateWithTrace, _ := injectTraceIntoUpdate(ctx, update)
+	updateWithTrace, _ := injectTraceIntoUpdate(ctx, update, c.propagator)
 
 	res, err := c.Collection.UpdateMany(ctx, filter, updateWithTrace, opts...)
 	recordSpanError(span, err)
@@ -137,7 +143,7 @@ func (c *Collection) UpdateMany(ctx context.Context, filter any, update any, opt
 // ReplaceOne injects the current trace context into the replacement document.
 // otelmongo already creates the command span.
 func (c *Collection) ReplaceOne(ctx context.Context, filter any, replacement any, opts ...options.Lister[options.ReplaceOptions]) (*mongo.UpdateResult, error) {
-	replacementWithTrace, err := injectTraceIntoDocument(ctx, replacement)
+	replacementWithTrace, err := injectTraceIntoDocument(ctx, replacement, c.propagator)
 	if err != nil {
 		return nil, fmt.Errorf("otelmongo: inject trace: %w", err)
 	}
@@ -222,7 +228,7 @@ func (c *Collection) Aggregate(ctx context.Context, pipeline any, opts ...option
 	if err != nil {
 		return nil, err
 	}
-	return &Cursor{Cursor: cursor, tracer: c.tracer, parentCtx: ctx}, nil
+	return &Cursor{Cursor: cursor, tracer: c.tracer, parentCtx: ctx, propagator: c.propagator}, nil
 }
 
 // UpdateByID updates one document by _id. Injects current trace into update
@@ -236,7 +242,7 @@ func (c *Collection) UpdateByID(ctx context.Context, id any, update any, opts ..
 	)
 	defer span.End()
 
-	updateWithTrace, _ := injectTraceIntoUpdate(ctx, update)
+	updateWithTrace, _ := injectTraceIntoUpdate(ctx, update, c.propagator)
 	res, err := c.Collection.UpdateByID(ctx, id, updateWithTrace, opts...)
 	recordSpanError(span, err)
 	return res, err

@@ -201,9 +201,9 @@ func TestWriteMessageNoSpan(t *testing.T) {
 	}
 }
 
-// TestWithPropagatorOption verifies that a custom propagator supplied via
-// WithPropagator is honoured.
-func TestWithPropagatorOption(t *testing.T) {
+// TestWithPropagatorsOption verifies that a custom propagator supplied via
+// WithPropagators is honoured.
+func TestWithPropagatorsOption(t *testing.T) {
 	rec := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
 	prop := propagation.NewCompositeTextMapPropagator(
@@ -211,7 +211,7 @@ func TestWithPropagatorOption(t *testing.T) {
 	)
 
 	opts := []otelwebsocket.Option{
-		otelwebsocket.WithPropagator(prop),
+		otelwebsocket.WithPropagators(prop),
 		otelwebsocket.WithTracerProvider(tp),
 	}
 

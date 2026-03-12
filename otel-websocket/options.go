@@ -9,9 +9,9 @@ import (
 // Option configures a Conn.
 type Option func(*Conn)
 
-// WithPropagator sets the TextMapPropagator used to inject and extract
-// trace context. Defaults to otel.GetTextMapPropagator(). Per OTel contrib: accept Propagators.
-func WithPropagator(p propagation.TextMapPropagator) Option {
+// WithPropagators sets the TextMapPropagator used to inject and extract
+// trace context. Defaults to otel.GetTextMapPropagator(). Aligns with OTel contrib naming (WithPropagators).
+func WithPropagators(p propagation.TextMapPropagator) Option {
 	return func(c *Conn) {
 		if p != nil {
 			c.propagator = p

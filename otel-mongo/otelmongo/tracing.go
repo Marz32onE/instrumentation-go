@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -24,15 +25,18 @@ type TraceMetadata struct {
 	Tracestate string `bson:"tracestate,omitempty"`
 }
 
-// traceMetadataFromContext extracts W3C trace context from ctx into TraceMetadata.
-// Returns (nil, false) when the span context in ctx is not valid.
-func traceMetadataFromContext(ctx context.Context) (*TraceMetadata, bool) {
+// traceMetadataFromContext extracts W3C trace context from ctx into TraceMetadata using prop.
+// When prop is nil, otel.GetTextMapPropagator() is used. Returns (nil, false) when the span context in ctx is not valid.
+func traceMetadataFromContext(ctx context.Context, prop propagation.TextMapPropagator) (*TraceMetadata, bool) {
 	spanCtx := trace.SpanFromContext(ctx).SpanContext()
 	if !spanCtx.IsValid() {
 		return nil, false
 	}
+	if prop == nil {
+		prop = otel.GetTextMapPropagator()
+	}
 	carrier := propagation.MapCarrier{}
-	propagation.TraceContext{}.Inject(ctx, carrier)
+	prop.Inject(ctx, carrier)
 	return &TraceMetadata{
 		Traceparent: carrier.Get("traceparent"),
 		Tracestate:  carrier.Get("tracestate"),
@@ -40,9 +44,8 @@ func traceMetadataFromContext(ctx context.Context) (*TraceMetadata, bool) {
 }
 
 // injectTraceIntoDocument marshals document to bson.D and, when the span context
-// in ctx is valid, appends an "_oteltrace" field containing the W3C traceparent
-// and tracestate values. The original document is not modified.
-func injectTraceIntoDocument(ctx context.Context, document any) (bson.D, error) {
+// in ctx is valid, appends an "_oteltrace" field using prop (nil => global). The original document is not modified.
+func injectTraceIntoDocument(ctx context.Context, document any, prop propagation.TextMapPropagator) (bson.D, error) {
 	raw, err := bson.Marshal(document)
 	if err != nil {
 		return nil, fmt.Errorf("otelmongo: marshal document: %w", err)
@@ -53,7 +56,7 @@ func injectTraceIntoDocument(ctx context.Context, document any) (bson.D, error) 
 		return nil, fmt.Errorf("otelmongo: unmarshal document: %w", err)
 	}
 
-	meta, ok := traceMetadataFromContext(ctx)
+	meta, ok := traceMetadataFromContext(ctx, prop)
 	if !ok {
 		return doc, nil
 	}
@@ -88,37 +91,40 @@ func extractMetadataFromRaw(raw bson.Raw) (*TraceMetadata, bool) {
 // ContextFromDocument returns a context enriched with the trace context stored in
 // the document's "_oteltrace" field. Intended for consumers that read documents
 // outside of the Collection CRUD helpers (e.g. change stream fullDocument).
-// When _oteltrace is absent or invalid, the original ctx is returned unchanged.
+// Uses the global propagator (otel.GetTextMapPropagator()). When _oteltrace is absent or invalid, the original ctx is returned unchanged.
 func ContextFromDocument(ctx context.Context, raw bson.Raw) context.Context {
 	meta, ok := extractMetadataFromRaw(raw)
 	if !ok {
 		return ctx
 	}
-	return contextFromTraceMetadata(ctx, meta)
+	return contextFromTraceMetadata(ctx, meta, otel.GetTextMapPropagator())
 }
 
 // contextFromTraceMetadata injects the remote span context encoded in meta into
-// ctx by using the W3C TraceContext propagator and returns the enriched context.
-func contextFromTraceMetadata(ctx context.Context, meta *TraceMetadata) context.Context {
+// ctx using prop and returns the enriched context. When prop is nil, otel.GetTextMapPropagator() is used.
+func contextFromTraceMetadata(ctx context.Context, meta *TraceMetadata, prop propagation.TextMapPropagator) context.Context {
+	if prop == nil {
+		prop = otel.GetTextMapPropagator()
+	}
 	carrier := propagation.MapCarrier{
 		"traceparent": meta.Traceparent,
 	}
 	if meta.Tracestate != "" {
 		carrier["tracestate"] = meta.Tracestate
 	}
-	return propagation.TraceContext{}.Extract(ctx, carrier)
+	return prop.Extract(ctx, carrier)
 }
 
 // injectTraceIntoUpdate inspects update, and when ctx carries a valid span context,
-// embeds the trace metadata into the update document:
+// embeds the trace metadata into the update document using prop (nil => global).
 //   - For operator updates (first key starts with "$") the metadata is added to the
 //     "$set" operator so it is written to the document on every update.
 //   - For replacement documents the metadata is appended as a top-level field.
 //
 // The original update value is returned unchanged when no valid span context is
 // present or when the update cannot be marshalled to bson.D.
-func injectTraceIntoUpdate(ctx context.Context, update any) (any, error) {
-	meta, ok := traceMetadataFromContext(ctx)
+func injectTraceIntoUpdate(ctx context.Context, update any, prop propagation.TextMapPropagator) (any, error) {
+	meta, ok := traceMetadataFromContext(ctx, prop)
 	if !ok {
 		return update, nil
 	}

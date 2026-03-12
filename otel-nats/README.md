@@ -1,127 +1,127 @@
-# natstrace
+# otel-nats (otelnats + oteljetstream)
 
 [繁體中文 (Traditional Chinese)](README.zh-TW.md)
 
 ---
 
-OpenTelemetry tracing wrapper for [NATS](https://nats.io/) and [NATS JetStream](https://docs.nats.io/nats-concepts/jetstream), aligned with the official `nats.go` / `nats.go/jetstream` APIs. Propagates W3C Trace Context in message headers.
+OpenTelemetry tracing for [NATS](https://nats.io/) and [NATS JetStream](https://docs.nats.io/nats-concepts/jetstream), aligned with the official `nats.go` / `nats.go/jetstream` APIs. Propagates W3C Trace Context in message headers. Per [OTel Go Contrib](https://github.com/open-telemetry/opentelemetry-go-contrib/tree/main/instrumentation): packages accept **TracerProvider** and **Propagators** via options; they do **not** provide InitTracer. Set the global provider and propagator at process startup (see **example/**).
 
 ---
 
-## Architecture
+## Layout
 
 ```
-pkg/natstrace/
-├── natstrace/           # Core NATS connection and Pub/Sub
-│   ├── otel.go          # InitTracer, ShutdownTracer, WithTracerProvider
-│   ├── connect.go       # Connect, ConnectTLS, ConnectWithCredentials
-│   ├── conn.go          # Conn: Publish, PublishMsg, Subscribe, QueueSubscribe, Request
-│   ├── propagation.go   # HeaderCarrier (nats.Header ↔ TextMapCarrier)
+otel-nats/
+├── otelnats/           # Core NATS: Connect, Conn, Publish, Subscribe, HeaderCarrier
+│   ├── connect.go      # Connect, ConnectWithOptions, ConnectTLS, ConnectWithCredentials
+│   ├── conn.go         # Conn, Publish, PublishMsg, Subscribe, QueueSubscribe, WithTracerProvider, WithPropagators
+│   ├── propagation.go  # HeaderCarrier (nats.Header ↔ TextMapCarrier)
 │   └── doc.go
-├── jetstreamtrace/      # JetStream streams and consumers
-│   ├── jetstream.go     # New, JetStream, Publish, CreateOrUpdateStream
-│   ├── stream.go        # Stream, Consumer, CreateOrUpdateConsumer
-│   ├── consumer.go      # Consume, Messages, Fetch, FetchBytes, FetchNoWait, MessageBatch
+├── oteljetstream/      # JetStream: New, JetStream, Stream, Consumer, Consume, Messages, Fetch
+│   ├── jetstream.go    # New(conn), Publish, CreateOrUpdateStream
+│   ├── stream.go       # Stream, Consumer, CreateOrUpdateConsumer
+│   ├── consumer.go      # Consume, Messages, Fetch, MessageBatch, MsgWithContext
 │   └── doc.go
+├── example/            # How to create TracerProvider + set global + use otelnats/oteljetstream
 ├── go.mod
 └── README.md
 ```
-
-- **Tracer and propagator:** Provided by the **global** default. You **may** call **`InitTracer(endpoint, attrs...)`** first to set service name/version and endpoint; if you don’t, the first **`Connect(url, ...)`** will initialize the tracer with default endpoint (`OTEL_EXPORTER_OTLP_ENDPOINT` or `localhost:4317`), auto-generated `service.name` (UUID), and `service.version` (`0.0.0`). **Explicit InitTracer is recommended** so you can set a proper service name and version.
-- **Connection:** `natstrace.Connect(url, natsOpts)` returns **`*natstrace.Conn`**, used like `*nats.Conn`; Publish/Request take an extra `context.Context`, and Subscribe handlers receive **`MsgWithContext`** (m.Msg, m.Context()); type **MsgHandler** matches nats.MsgHandler naming.
-- **JetStream:** `jetstreamtrace.New(conn)` requires **`*natstrace.Conn`**. Publish accepts `context.Context`; Consume / Messages / Fetch use **MsgWithContext**; handler type **MsgHandler** aligns with natstrace and nats.go.
 
 ---
 
 ## Usage
 
-### 1. Initialize (recommended) or connect directly
+### 1. Initialize provider and propagator (application responsibility)
 
-You can call **`Connect`** without calling **InitTracer** first; the package will initialize the tracer with default endpoint, auto-generated `service.name` (UUID v4), and `service.version` (`0.0.0`). **Calling InitTracer explicitly is recommended** so you can set a proper service name and version.
-
-**Recommended (explicit InitTracer):**
+Create a TracerProvider (e.g. OTLP) and set the global provider and propagator once at startup. See **example/main.go** for a full runnable.
 
 ```go
 import (
+    "go.opentelemetry.io/otel"
     "go.opentelemetry.io/otel/attribute"
-    "github.com/Marz32onE/natstrace/natstrace"
+    "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+    "go.opentelemetry.io/otel/propagation"
+    "go.opentelemetry.io/otel/sdk/resource"
+    sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
-func main() {
-    if err := natstrace.InitTracer("", attribute.String("service.name", "my-service"), attribute.String("service.version", "1.0.0")); err != nil {
-        log.Fatal(err)
-    }
-    defer natstrace.ShutdownTracer() // optional; package also registers runtime.AddCleanup for process teardown
+// In main:
+tp, err := newTracerProvider() // create with OTLP exporter + resource
+if err != nil { log.Fatal(err) }
+defer func() { _ = tp.Shutdown(ctx) }()
 
-    conn, err := natstrace.Connect(natsURL, nil)
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer conn.Close()
-    // ...
-}
+otel.SetTracerProvider(tp)
+otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+    propagation.TraceContext{},
+    propagation.Baggage{},
+))
 ```
 
-**Minimal (no InitTracer):** `natstrace.Connect(natsURL, nil)` will initialize the tracer automatically with defaults.
-
-- Empty `endpoint` uses `OTEL_EXPORTER_OTLP_ENDPOINT` or `localhost:4317`.
-- HTTP endpoints (e.g. `http://...` or port 4318) use OTLP/HTTP; otherwise OTLP/gRPC.
-- If you omit `service.name` / `service.version` in InitTracer args, the package sets `service.name` to a UUID and `service.version` to `0.0.0`.
-
-### 2. Core NATS: Publish / Subscribe
+### 2. Core NATS: Connect, Publish, Subscribe
 
 ```go
-conn.Publish(ctx, "subject", []byte("data"))
-conn.PublishMsg(ctx, msg)
+import (
+    "github.com/Marz32onE/instrumentation-go/otel-nats/otelnats"
+)
 
-conn.Subscribe("subject", func(m natstrace.MsgWithContext) {
+conn, err := otelnats.Connect(natsURL, nil)
+if err != nil { log.Fatal(err) }
+defer conn.Close()
+
+conn.Publish(ctx, "subject", []byte("data"))
+conn.Subscribe("subject", func(m otelnats.MsgWithContext) {
     // m.Msg, m.Context() — trace from headers in m.Context()
 })
 conn.QueueSubscribe("subject", "queue", handler)
-
-reply, err := conn.Request(ctx, "subject", []byte("ping"), 2*time.Second)
 ```
+
+Optional: pass **WithTracerProvider(tp)** or **WithPropagators(p)** to **ConnectWithOptions** for per-connection overrides.
 
 ### 3. JetStream
 
 ```go
-js, err := jetstreamtrace.New(conn)
+import (
+    "github.com/Marz32onE/instrumentation-go/otel-nats/oteljetstream"
+    "github.com/Marz32onE/instrumentation-go/otel-nats/otelnats"
+)
+
+conn, _ := otelnats.Connect(natsURL, nil)
+defer conn.Close()
+
+js, err := oteljetstream.New(conn)
 // After creating stream/consumer:
-cons.Consume(func(m jetstreamtrace.MsgWithContext) {
-    // m implements Msg (m.Data(), m.Ack()); m.Context() has trace from message headers
+cons.Consume(func(m oteljetstream.MsgWithContext) {
+    // m.Data(), m.Ack(), m.Context() — trace from message headers
 })
-// Or
-iter, _ := cons.Messages()
-ctx, msg, err := iter.Next()
-// Or
-batch, _ := cons.Fetch(5, jetstream.FetchMaxWait(time.Second))
-for m := range batch.MessagesWithContext() {
-    // m.Data(), m.Ack(), m.Context() — MsgWithContext aligns with jetstream.Msg
-}
 ```
 
-### 4. Underlying *nats.Conn
+### 4. Tests
 
-`conn.NatsConn()` returns `*nats.Conn`. `conn.TraceContext()` returns the Tracer and TextMapPropagator (used internally by jetstreamtrace).
+Set the global provider (and optionally propagator) before Connect; no InitTracer.
+
+```go
+otel.SetTracerProvider(tp)
+otel.SetTextMapPropagator(prop) // if testing propagation
+conn, err := otelnats.Connect(url, nil)
+```
 
 ---
 
-## API
+## API summary
 
 | Item | Description |
 |------|-------------|
-| **InitTracer** | Optional but **recommended**. Sets global TracerProvider and TextMapPropagator; if not called, the first `Connect` initializes with default endpoint and auto service.name/version. |
-| **ShutdownTracer** | Optional; the package registers `runtime.AddCleanup` (Go 1.24+) so shutdown runs at process teardown. Call `defer ShutdownTracer()` for guaranteed flush before exit. |
-| **Connect** | `Connect(url string, natsOpts []nats.Option)`. If tracer not initialized, calls `InitTracer("", nil)` first. |
-| **ConnectTLS / ConnectWithCredentials** | Require InitTracer to have been called first (return **`ErrInitTracerRequired`** otherwise). |
-| **Tests** | Use `natstrace.InitTracer("", natstrace.WithTracerProviderInit(tp))` (and optionally `otel.SetTextMapPropagator(prop)`) before `Connect(url, nil)`. |
+| **Connect** | `Connect(url string, natsOpts []nats.Option)`. Uses `otel.GetTracerProvider()` and `otel.GetTextMapPropagator()` unless overridden via ConnectWithOptions. |
+| **ConnectWithOptions** | Same with optional **WithTracerProvider(tp)** and **WithPropagators(p)**. |
+| **ScopeName / Version()** | Used when creating Tracer (OTel contrib guideline). |
+| **Tests** | Use `otel.SetTracerProvider(tp)` (and `otel.SetTextMapPropagator(prop)` if needed) before Connect. |
 
 ---
 
 ## Dependencies
 
 - `github.com/nats-io/nats.go` (includes JetStream)
-- `go.opentelemetry.io/otel` and SDK (trace, propagation, OTLP exporter)
+- `go.opentelemetry.io/otel` and SDK (trace, propagation)
 - Go 1.25+
 
 Tests use `github.com/stretchr/testify` and `nats-server/v2` for integration tests.

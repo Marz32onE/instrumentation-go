@@ -2,10 +2,9 @@
 // OpenTelemetry distributed-tracing support by propagating the W3C Trace
 // Context inside the WebSocket message body.
 //
-// Tracer initialization: Call InitTracer(endpoint, attrs...) once at startup to
-// set the global TracerProvider and propagator. If NewConn or Dial is used
-// without a prior InitTracer (and without WithTracerProvider), the package
-// calls InitTracer("", nil) once with default endpoint and service attributes.
+// Tracer initialization: Set the global TracerProvider and TextMapPropagator at
+// process startup (see example/) or pass WithTracerProvider/WithPropagators when
+// creating a Conn. Defaults to otel.GetTracerProvider() and otel.GetTextMapPropagator().
 //
 // # How it works
 //
@@ -55,7 +54,6 @@ type Conn struct {
 // NewConn wraps an existing gorilla *websocket.Conn.  Any number of Option
 // values may be provided to customise the propagator or tracer provider.
 func NewConn(conn *websocket.Conn, opts ...Option) *Conn {
-	ensureTracer()
 	c := &Conn{Conn: conn}
 	applyOptions(c, opts)
 	return c
