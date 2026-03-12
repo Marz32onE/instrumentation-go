@@ -1,8 +1,8 @@
-// Package mongotrace: OTel database and MongoDB semantic convention helpers.
+// Package otelmongo: OTel database and MongoDB semantic convention helpers.
 // See https://opentelemetry.io/docs/specs/semconv/db/database-spans/ and
 // https://opentelemetry.io/docs/specs/semconv/db/mongodb/
 
-package mongotrace
+package otelmongo
 
 import (
 	"errors"

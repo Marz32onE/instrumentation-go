@@ -1,4 +1,4 @@
-package natstrace_test
+package otelnats_test
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	oteltrace "go.opentelemetry.io/otel/trace"
 
-	natstrace "github.com/Marz32onE/natstrace/natstrace"
+	otelnats "github.com/Marz32onE/instrumentation-go/otel-nats/otelnats"
 )
 
 func newTestProvider() (*trace.TracerProvider, *tracetest.SpanRecorder) {
@@ -61,9 +61,9 @@ func TestW3CPropagationRoundtrip(t *testing.T) {
 	tp, _ := newTestProvider()
 	prop := propagation.NewCompositeTextMapPropagator(propagation.TraceContext{})
 	otel.SetTextMapPropagator(prop)
-	_ = natstrace.InitTracer("", natstrace.WithTracerProviderInit(tp))
+	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(tp))
 
-	conn, err := natstrace.Connect(url, nil)
+	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -89,7 +89,7 @@ func TestW3CPropagationRoundtrip(t *testing.T) {
 		t.Fatal("timeout")
 	}
 
-	carrier := natstrace.HeaderCarrier{H: h}
+	carrier := otelnats.HeaderCarrier{H: h}
 	extracted := prop.Extract(context.Background(), carrier)
 	gotTraceID := oteltrace.SpanFromContext(extracted).SpanContext().TraceID()
 	assert.Equal(t, wantTraceID, gotTraceID)
@@ -98,8 +98,8 @@ func TestW3CPropagationRoundtrip(t *testing.T) {
 func TestPublishCreatesProducerSpan(t *testing.T) {
 	url := startServer(t)
 	tp, sr := newTestProvider()
-	_ = natstrace.InitTracer("", natstrace.WithTracerProviderInit(tp))
-	conn, err := natstrace.Connect(url, nil)
+	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(tp))
+	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -119,8 +119,8 @@ func TestPublishCreatesProducerSpan(t *testing.T) {
 func TestPublishMsgCreatesProducerSpan(t *testing.T) {
 	url := startServer(t)
 	tp, sr := newTestProvider()
-	_ = natstrace.InitTracer("", natstrace.WithTracerProviderInit(tp))
-	conn, err := natstrace.Connect(url, nil)
+	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(tp))
+	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -140,14 +140,14 @@ func TestSubscribeExtractsTraceContext(t *testing.T) {
 	prop := propagation.NewCompositeTextMapPropagator(propagation.TraceContext{})
 
 	otel.SetTextMapPropagator(prop)
-	_ = natstrace.InitTracer("", natstrace.WithTracerProviderInit(tp))
-	conn, err := natstrace.Connect(url, nil)
+	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(tp))
+	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
 
 	subject := "test.subscribe"
 	done := make(chan struct{}, 1)
-	_, err = conn.Subscribe(subject, func(m natstrace.MsgWithContext) {
+	_, err = conn.Subscribe(subject, func(m otelnats.MsgWithContext) {
 		_ = oteltrace.SpanFromContext(m.Context()).SpanContext().TraceID()
 		done <- struct{}{}
 	})
@@ -181,14 +181,14 @@ func TestSubscribeExtractsTraceContext(t *testing.T) {
 func TestQueueSubscribeRecordsQueueName(t *testing.T) {
 	url := startServer(t)
 	tp, sr := newTestProvider()
-	_ = natstrace.InitTracer("", natstrace.WithTracerProviderInit(tp))
-	conn, err := natstrace.Connect(url, nil)
+	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(tp))
+	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
 
 	subject, queue := "test.queue", "workers"
 	done := make(chan struct{}, 1)
-	_, err = conn.QueueSubscribe(subject, queue, func(m natstrace.MsgWithContext) {
+	_, err = conn.QueueSubscribe(subject, queue, func(m otelnats.MsgWithContext) {
 		done <- struct{}{}
 	})
 	require.NoError(t, err)
@@ -210,14 +210,14 @@ func TestSubscribeConsumerSpanLinkedToProducer(t *testing.T) {
 	prop := propagation.NewCompositeTextMapPropagator(propagation.TraceContext{})
 
 	otel.SetTextMapPropagator(prop)
-	_ = natstrace.InitTracer("", natstrace.WithTracerProviderInit(tp))
-	conn, err := natstrace.Connect(url, nil)
+	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(tp))
+	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
 
 	subject := "test.linkage"
 	done := make(chan struct{}, 1)
-	_, err = conn.Subscribe(subject, func(m natstrace.MsgWithContext) {
+	_, err = conn.Subscribe(subject, func(m otelnats.MsgWithContext) {
 		done <- struct{}{}
 	})
 	require.NoError(t, err)
@@ -243,8 +243,8 @@ func TestSubscribeConsumerSpanLinkedToProducer(t *testing.T) {
 func TestRequestCreatesProducerSpanAndReturnsReply(t *testing.T) {
 	url := startServer(t)
 	tp, sr := newTestProvider()
-	_ = natstrace.InitTracer("", natstrace.WithTracerProviderInit(tp))
-	conn, err := natstrace.Connect(url, nil)
+	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(tp))
+	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -267,8 +267,8 @@ func TestRequestCreatesProducerSpanAndReturnsReply(t *testing.T) {
 func TestTraceContextReturnsTracerAndPropagator(t *testing.T) {
 	url := startServer(t)
 	tp := trace.NewTracerProvider()
-	_ = natstrace.InitTracer("", natstrace.WithTracerProviderInit(tp))
-	conn, err := natstrace.Connect(url, nil)
+	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(tp))
+	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
 

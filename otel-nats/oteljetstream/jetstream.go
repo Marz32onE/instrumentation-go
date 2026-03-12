@@ -1,4 +1,4 @@
-package jetstreamtrace
+package oteljetstream
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.27.0"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/Marz32onE/natstrace/natstrace"
+	"github.com/Marz32onE/instrumentation-go/otel-nats/otelnats"
 )
 
 const messagingSystem = "nats"
@@ -78,13 +78,13 @@ type JetStream interface {
 }
 
 type jsImpl struct {
-	conn *natstrace.Conn
+	conn *otelnats.Conn
 	js   jetstream.JetStream
 }
 
 // New returns a JetStream interface that injects trace from context on Publish and uses the given traced Conn.
-// Usage: js, err := jetstreamtrace.New(natstraceConn)
-func New(conn *natstrace.Conn) (JetStream, error) {
+// Usage: js, err := oteljetstream.New(otelnatsConn)
+func New(conn *otelnats.Conn) (JetStream, error) {
 	js, err := jetstream.New(conn.NatsConn())
 	if err != nil {
 		return nil, err
@@ -112,7 +112,7 @@ func (j *jsImpl) PublishMsg(ctx context.Context, msg *nats.Msg, opts ...jetstrea
 		jetstreamTracePublishAttrs(msg),
 	)
 	defer span.End()
-	prop.Inject(ctx, &natstrace.HeaderCarrier{H: msg.Header})
+	prop.Inject(ctx, &otelnats.HeaderCarrier{H: msg.Header})
 	ack, err := j.js.PublishMsg(ctx, msg, opts...)
 	if err != nil {
 		span.RecordError(err)

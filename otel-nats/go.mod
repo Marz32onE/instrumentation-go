@@ -1,4 +1,4 @@
-module github.com/Marz32onE/natstrace
+module github.com/Marz32onE/instrumentation-go/otel-nats
 
 go 1.25.0
 

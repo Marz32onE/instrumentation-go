@@ -1,4 +1,4 @@
-package mongotrace
+package otelnats
 
 import (
 	"context"
@@ -25,22 +25,13 @@ const (
 	serviceNameKey    = attribute.Key("service.name")
 	serviceVersionKey = attribute.Key("service.version")
 	defaultVersion    = "0.0.0"
-
-	// ScopeName is the instrumentation scope name (OTel contrib guideline).
-	ScopeName              = "github.com/Marz32onE/mongodbtrace/mongotrace"
-	instrumentationName    = ScopeName
-	instrumentationVersion = "0.1.3"
 )
-
-// Version returns the instrumentation module version (OTel contrib guideline).
-func Version() string {
-	return instrumentationVersion
-}
 
 var (
 	tracerInitialized bool
 	globalShutdown    func()
-	cleanupOwner      *struct{}
+	// cleanupOwner is used with runtime.AddCleanup so ShutdownTracer runs when the process tears down (best-effort; call defer ShutdownTracer() for guaranteed flush).
+	cleanupOwner *struct{}
 )
 
 // defaultPropagator is the process-wide propagator (TraceContext + Baggage). Used by InitTracer.
@@ -49,9 +40,9 @@ var defaultPropagator = propagation.NewCompositeTextMapPropagator(
 	propagation.Baggage{},
 )
 
-// WithTracerProviderInit returns an InitTracer option that uses the given TracerProvider
-// instead of creating one from the endpoint. Use when you need a custom provider
-// (e.g. in tests with a SpanRecorder). For per-connection TracerProvider use ConnectWithOptions(..., WithTracerProvider(tp)).
+// WithTracerProviderInit returns an InitTracer argument that uses the given TracerProvider
+// instead of creating one from the endpoint. Intended for tests (e.g. with a SpanRecorder).
+// For per-connection TracerProvider, use otelnats.ConnectWithOptions(..., otelnats.WithTracerProvider(tp)).
 func WithTracerProviderInit(tp trace.TracerProvider) TracerProviderOption {
 	return TracerProviderOption{TracerProvider: tp}
 }
@@ -67,16 +58,9 @@ type TracerProviderOption struct {
 // an SDK TracerProvider (e.g. set by another package), InitTracer is a no-op.
 // Empty endpoint uses OTEL_EXPORTER_OTLP_ENDPOINT env or "localhost:4317".
 //
-// InitTracer returns the TracerProvider so the caller can defer shutdown:
-//
-//	tp, err := mongotrace.InitTracer(endpoint, attrs...)
-//	if err != nil { ... }
-//	if sdk, ok := tp.(*sdktrace.TracerProvider); ok {
-//	    defer func() { _ = sdk.Shutdown(context.Background()) }()
-//	}
-//
-// To use a custom TracerProvider (e.g. in tests), pass WithTracerProviderInit(tp) as an argument.
-func InitTracer(endpoint string, args ...interface{}) (trace.TracerProvider, error) {
+// For tests, pass WithTracerProviderInit(tp) as an extra argument to use a custom provider
+// (e.g. one with tracetest.SpanRecorder) instead of creating an OTLP exporter.
+func InitTracer(endpoint string, args ...interface{}) error {
 	var attrs []attribute.KeyValue
 	for _, a := range args {
 		if opt, ok := a.(TracerProviderOption); ok {
@@ -94,7 +78,7 @@ func InitTracer(endpoint string, args ...interface{}) (trace.TracerProvider, err
 				globalShutdown = nil
 			}
 			tracerInitialized = true
-			return opt.TracerProvider, nil
+			return nil
 		}
 		if kv, ok := a.(attribute.KeyValue); ok {
 			attrs = append(attrs, kv)
@@ -108,7 +92,7 @@ func InitTracer(endpoint string, args ...interface{}) (trace.TracerProvider, err
 	if g := otel.GetTracerProvider(); g != nil {
 		if _, ok := g.(*sdktrace.TracerProvider); ok {
 			tracerInitialized = true
-			return g, nil
+			return nil
 		}
 	}
 	if endpoint == "" {
@@ -134,13 +118,13 @@ func InitTracer(endpoint string, args ...interface{}) (trace.TracerProvider, err
 		)
 	}
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	attrs = ensureServiceNameAndVersion(attrs)
 	res, err := resource.New(ctx, resource.WithAttributes(attrs...))
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	tp := sdktrace.NewTracerProvider(
@@ -158,13 +142,13 @@ func InitTracer(endpoint string, args ...interface{}) (trace.TracerProvider, err
 	cleanupOwner = &struct{}{}
 	runtime.AddCleanup(cleanupOwner, func(struct{}) { ShutdownTracer() }, struct{}{})
 	tracerInitialized = true
-	return tp, nil
+	return nil
 }
 
 // ShutdownTracer shuts down the TracerProvider set by InitTracer and resets the global state.
 // After ShutdownTracer, Connect must not be used until InitTracer is called again.
 // The package also registers runtime.AddCleanup (Go 1.24+) so ShutdownTracer runs when the process tears down (best-effort).
-// For guaranteed flush before exit, call "defer mongotrace.ShutdownTracer()" in main.
+// For guaranteed flush before exit, call "defer otelnats.ShutdownTracer()" in main.
 func ShutdownTracer() {
 	if globalShutdown != nil {
 		globalShutdown()
@@ -182,18 +166,15 @@ func useHTTPEndpoint(endpoint string) bool {
 	if u, err := url.Parse(s); err == nil && (u.Scheme == "http" || u.Scheme == "https") {
 		return true
 	}
-	_, port, err := splitHostPortOTLP(s)
+	_, port, err := splitHostPort(s)
 	if err != nil {
-		return false
-	}
-	if port == "" {
 		return false
 	}
 	p, _ := strconv.Atoi(port)
 	return p == 4318
 }
 
-func splitHostPortOTLP(hostport string) (host, port string, err error) {
+func splitHostPort(hostport string) (host, port string, err error) {
 	u, err := url.Parse("//" + hostport)
 	if err != nil {
 		return "", "", err

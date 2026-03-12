@@ -1,4 +1,4 @@
-package mongotrace
+package otelmongo
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
-	otelmongo "go.opentelemetry.io/contrib/instrumentation/go.mongodb.org/mongo-driver/v2/mongo/otelmongo"
+	contribmongo "go.opentelemetry.io/contrib/instrumentation/go.mongodb.org/mongo-driver/v2/mongo/otelmongo"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
@@ -24,7 +24,7 @@ type Client struct {
 }
 
 // ErrInitTracerRequired is returned when Connect is called before InitTracer.
-var ErrInitTracerRequired = errors.New("mongotrace: InitTracer must be called before Connect")
+var ErrInitTracerRequired = errors.New("otelmongo: InitTracer must be called before Connect")
 
 // ClientOption configures Connect/NewClient. Per OTel contrib: accept TracerProvider and Propagators.
 type ClientOption interface {
@@ -85,7 +85,7 @@ func ConnectWithOptions(traceOpts []ClientOption, opts ...*options.ClientOptions
 	if tp == nil {
 		tp = otel.GetTracerProvider()
 	}
-	monitor := otelmongo.NewMonitor(otelmongo.WithTracerProvider(tp))
+	monitor := contribmongo.NewMonitor(contribmongo.WithTracerProvider(tp))
 	base := options.Client().SetMonitor(monitor)
 	merged := options.MergeClientOptions(append(opts, base)...)
 	mc, err := mongo.Connect(merged)
@@ -107,7 +107,7 @@ func (c *Client) Disconnect(ctx context.Context) error {
 	return c.Client.Disconnect(ctx)
 }
 
-// Ping runs a ping command against the server. Driver-level otelmongo monitor
+// Ping runs a ping command against the server. Driver-level contribmongo monitor
 // instruments the command. Use readpref.Primary() or nil for default.
 func (c *Client) Ping(ctx context.Context, rp *readpref.ReadPref) error {
 	return c.Client.Ping(ctx, rp)

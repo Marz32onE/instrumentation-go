@@ -1,4 +1,4 @@
-package mongotrace
+package otelmongo
 
 import (
 	"context"
@@ -51,18 +51,18 @@ func integrationTP(t *testing.T) (trace.TracerProvider, *tracetest.SpanRecorder)
 }
 
 // TestCollectionInsertOneAndFind verifies InsertOne injects _oteltrace into the document.
-// mongotrace does not create its own span for insert; otelmongo provides the command span.
+// otelmongo wrapper does not create its own span for insert; contrib otelmongo provides the command span.
 func TestCollectionInsertOneAndFind(t *testing.T) {
 	uri := requireMongoDB(t)
 	tp, _ := integrationTP(t)
-	tracer := tp.Tracer("mongotrace", trace.WithInstrumentationVersion("0.1.0"))
+	tracer := tp.Tracer("otelmongo", trace.WithInstrumentationVersion("0.1.0"))
 
 	_, _ = InitTracer("", WithTracerProviderInit(tp))
 	client, err := Connect(options.Client().ApplyURI(uri))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
 
-	db := client.Database("mongotrace_test")
+	db := client.Database("otelmongo_test")
 	coll := db.Collection("insert_find")
 	t.Cleanup(func() { _ = coll.Drop(context.Background()) })
 
@@ -88,14 +88,14 @@ func TestCollectionInsertOneAndFind(t *testing.T) {
 func TestCollectionInsertMany_StoresOtelTrace(t *testing.T) {
 	uri := requireMongoDB(t)
 	tp, _ := integrationTP(t)
-	tracer := tp.Tracer("mongotrace", trace.WithInstrumentationVersion("0.1.0"))
+	tracer := tp.Tracer("otelmongo", trace.WithInstrumentationVersion("0.1.0"))
 
 	_, _ = InitTracer("", WithTracerProviderInit(tp))
 	client, err := Connect(options.Client().ApplyURI(uri))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
 
-	db := client.Database("mongotrace_test")
+	db := client.Database("otelmongo_test")
 	coll := db.Collection("insert_many_trace")
 	t.Cleanup(func() { _ = coll.Drop(context.Background()) })
 
@@ -124,14 +124,14 @@ func TestCollectionInsertMany_StoresOtelTrace(t *testing.T) {
 func TestCollectionReplaceOne_StoresOtelTrace(t *testing.T) {
 	uri := requireMongoDB(t)
 	tp, _ := integrationTP(t)
-	tracer := tp.Tracer("mongotrace", trace.WithInstrumentationVersion("0.1.0"))
+	tracer := tp.Tracer("otelmongo", trace.WithInstrumentationVersion("0.1.0"))
 
 	_, _ = InitTracer("", WithTracerProviderInit(tp))
 	client, err := Connect(options.Client().ApplyURI(uri))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
 
-	db := client.Database("mongotrace_test")
+	db := client.Database("otelmongo_test")
 	coll := db.Collection("replace_trace")
 	t.Cleanup(func() { _ = coll.Drop(context.Background()) })
 
@@ -158,14 +158,14 @@ func TestCollectionReplaceOne_StoresOtelTrace(t *testing.T) {
 func TestCollectionUpdateOne_InjectTrace(t *testing.T) {
 	uri := requireMongoDB(t)
 	tp, sr := integrationTP(t)
-	tracer := tp.Tracer("mongotrace", trace.WithInstrumentationVersion("0.1.0"))
+	tracer := tp.Tracer("otelmongo", trace.WithInstrumentationVersion("0.1.0"))
 
 	_, _ = InitTracer("", WithTracerProviderInit(tp))
 	client, err := Connect(options.Client().ApplyURI(uri))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
 
-	db := client.Database("mongotrace_test")
+	db := client.Database("otelmongo_test")
 	coll := db.Collection("update_inject")
 	t.Cleanup(func() { _ = coll.Drop(context.Background()) })
 
@@ -201,7 +201,7 @@ func TestCollectionDeleteOne_OneRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
 
-	db := client.Database("mongotrace_test")
+	db := client.Database("otelmongo_test")
 	coll := db.Collection("delete_one")
 	t.Cleanup(func() { _ = coll.Drop(context.Background()) })
 
@@ -231,7 +231,7 @@ func TestCollectionCountDocuments(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
 
-	db := client.Database("mongotrace_test")
+	db := client.Database("otelmongo_test")
 	coll := db.Collection("count_docs")
 	t.Cleanup(func() { _ = coll.Drop(context.Background()) })
 
@@ -248,13 +248,13 @@ func TestCollectionCountDocuments(t *testing.T) {
 func TestCollectionUpdateByID_InjectTrace(t *testing.T) {
 	uri := requireMongoDB(t)
 	tp, sr := integrationTP(t)
-	tracer := tp.Tracer("mongotrace", trace.WithInstrumentationVersion("0.1.0"))
+	tracer := tp.Tracer("otelmongo", trace.WithInstrumentationVersion("0.1.0"))
 	_, _ = InitTracer("", WithTracerProviderInit(tp))
 	client, err := Connect(options.Client().ApplyURI(uri))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
 
-	db := client.Database("mongotrace_test")
+	db := client.Database("otelmongo_test")
 	coll := db.Collection("update_by_id")
 	t.Cleanup(func() { _ = coll.Drop(context.Background()) })
 
@@ -285,7 +285,7 @@ func TestCollectionDeleteOneByID(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
 
-	db := client.Database("mongotrace_test")
+	db := client.Database("otelmongo_test")
 	coll := db.Collection("delete_by_id")
 	t.Cleanup(func() { _ = coll.Drop(context.Background()) })
 
@@ -314,7 +314,7 @@ func TestCollectionFindOneByID(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
 
-	db := client.Database("mongotrace_test")
+	db := client.Database("otelmongo_test")
 	coll := db.Collection("find_one_by_id")
 	t.Cleanup(func() { _ = coll.Drop(context.Background()) })
 
@@ -338,7 +338,7 @@ func TestCollectionFindByIDs(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
 
-	db := client.Database("mongotrace_test")
+	db := client.Database("otelmongo_test")
 	coll := db.Collection("find_by_ids")
 	t.Cleanup(func() { _ = coll.Drop(context.Background()) })
 
@@ -365,7 +365,7 @@ func TestCollectionBulkWrite(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
 
-	db := client.Database("mongotrace_test")
+	db := client.Database("otelmongo_test")
 	coll := db.Collection("bulk_write")
 	t.Cleanup(func() { _ = coll.Drop(context.Background()) })
 

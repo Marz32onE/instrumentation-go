@@ -1,4 +1,4 @@
-package mongotrace
+package otelmongo
 
 import (
 	"context"
@@ -41,7 +41,7 @@ func (c *Collection) dbAndColl() (dbName, collName string) {
 func (c *Collection) InsertOne(ctx context.Context, document any, opts ...options.Lister[options.InsertOneOptions]) (*mongo.InsertOneResult, error) {
 	docWithTrace, err := injectTraceIntoDocument(ctx, document)
 	if err != nil {
-		return nil, fmt.Errorf("mongotrace: inject trace: %w", err)
+		return nil, fmt.Errorf("otelmongo: inject trace: %w", err)
 	}
 	return c.Collection.InsertOne(ctx, docWithTrace, opts...)
 }
@@ -54,7 +54,7 @@ func (c *Collection) InsertMany(ctx context.Context, documents []any, opts ...op
 	for _, doc := range documents {
 		d, err := injectTraceIntoDocument(ctx, doc)
 		if err != nil {
-			return nil, fmt.Errorf("mongotrace: inject trace: %w", err)
+			return nil, fmt.Errorf("otelmongo: inject trace: %w", err)
 		}
 		docsWithTrace = append(docsWithTrace, d)
 	}
@@ -139,7 +139,7 @@ func (c *Collection) UpdateMany(ctx context.Context, filter any, update any, opt
 func (c *Collection) ReplaceOne(ctx context.Context, filter any, replacement any, opts ...options.Lister[options.ReplaceOptions]) (*mongo.UpdateResult, error) {
 	replacementWithTrace, err := injectTraceIntoDocument(ctx, replacement)
 	if err != nil {
-		return nil, fmt.Errorf("mongotrace: inject trace: %w", err)
+		return nil, fmt.Errorf("otelmongo: inject trace: %w", err)
 	}
 	return c.Collection.ReplaceOne(ctx, filter, replacementWithTrace, opts...)
 }

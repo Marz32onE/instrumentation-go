@@ -1,11 +1,11 @@
-package jetstreamtrace
+package oteljetstream
 
 import (
 	"context"
 
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/Marz32onE/natstrace/natstrace"
+	"github.com/Marz32onE/instrumentation-go/otel-nats/otelnats"
 )
 
 // Stream mirrors jetstream.Stream for managing consumers with tracing.
@@ -20,7 +20,7 @@ type Stream interface {
 }
 
 type streamImpl struct {
-	conn       *natstrace.Conn
+	conn       *otelnats.Conn
 	streamName string
 	s          jetstream.Stream
 }

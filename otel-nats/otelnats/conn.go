@@ -1,4 +1,4 @@
-package natstrace
+package otelnats
 
 import (
 	"context"
@@ -15,14 +15,14 @@ import (
 
 const (
 	// ScopeName is the instrumentation scope name for Tracer creation (OTel contrib guideline).
-	ScopeName             = "github.com/Marz32onE/natstrace/natstrace"
+	ScopeName             = "github.com/Marz32onE/instrumentation-go/otel-nats/otelnats"
 	instrumentationName    = ScopeName
 	instrumentationVersion = "0.1.10"
 	messagingSystem        = "nats"
 )
 
 // MsgWithContext carries a message and the context with extracted trace (Subscribe/QueueSubscribe).
-// Use m.Msg for the message and m.Context() for the trace context. Naming aligns with jetstreamtrace.MsgWithContext.
+// Use m.Msg for the message and m.Context() for the trace context. Naming aligns with oteljetstream.MsgWithContext.
 type MsgWithContext struct {
 	Msg *nats.Msg
 	Ctx context.Context
@@ -104,7 +104,7 @@ func newConn(nc *nats.Conn, opts ...Option) *Conn {
 	}
 }
 
-// TraceContext returns the tracer and propagator used by this Conn. Used by jetstreamtrace.
+// TraceContext returns the tracer and propagator used by this Conn. Used by oteljetstream.
 func (c *Conn) TraceContext() (trace.Tracer, propagation.TextMapPropagator) {
 	return c.tracer, c.propagator
 }

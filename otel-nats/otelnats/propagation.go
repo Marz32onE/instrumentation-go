@@ -1,4 +1,4 @@
-package natstrace
+package otelnats
 
 import (
 	"go.opentelemetry.io/otel/propagation"
@@ -7,7 +7,7 @@ import (
 )
 
 // HeaderCarrier adapts nats.Header to propagation.TextMapCarrier for W3C TraceContext inject/extract.
-// Used by jetstreamtrace and by Conn internally.
+// Used by oteljetstream and by Conn internally.
 type HeaderCarrier struct {
 	H nats.Header
 }

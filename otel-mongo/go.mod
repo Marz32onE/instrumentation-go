@@ -1,4 +1,4 @@
-module github.com/Marz32onE/mongodbtrace
+module github.com/Marz32onE/instrumentation-go/otel-mongo
 
 go 1.25.0
 

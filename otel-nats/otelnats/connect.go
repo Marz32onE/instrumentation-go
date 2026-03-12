@@ -1,4 +1,4 @@
-package natstrace
+package otelnats
 
 import (
 	"errors"
@@ -7,7 +7,7 @@ import (
 )
 
 // ErrInitTracerRequired is returned when Connect is called before InitTracer.
-var ErrInitTracerRequired = errors.New("natstrace: InitTracer must be called before Connect")
+var ErrInitTracerRequired = errors.New("otelnats: InitTracer must be called before Connect")
 
 // Connect establishes a NATS connection with tracing. Signature aligns with nats.Connect.
 // InitTracer must be called first or Connect returns ErrInitTracerRequired.

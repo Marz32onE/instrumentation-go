@@ -1,4 +1,4 @@
-package mongotrace
+package otelmongo
 
 import (
 	"context"

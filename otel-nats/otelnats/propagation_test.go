@@ -1,15 +1,15 @@
-package natstrace_test
+package otelnats_test
 
 import (
 	"testing"
 
 	nats "github.com/nats-io/nats.go"
 
-	natstrace "github.com/Marz32onE/natstrace/natstrace"
+	otelnats "github.com/Marz32onE/instrumentation-go/otel-nats/otelnats"
 )
 
 func TestHeaderCarrier_NilHeader(t *testing.T) {
-	var c natstrace.HeaderCarrier
+	var c otelnats.HeaderCarrier
 	if got := c.Keys(); got != nil {
 		t.Errorf("Keys() with nil header: got %v, want nil", got)
 	}
@@ -23,7 +23,7 @@ func TestHeaderCarrier_NonNilHeader(t *testing.T) {
 	h := nats.Header{}
 	h.Set("traceparent", "00-abc-1-01")
 	h.Set("tracestate", "x=y")
-	c := natstrace.HeaderCarrier{H: h}
+	c := otelnats.HeaderCarrier{H: h}
 
 	keys := c.Keys()
 	if len(keys) != 2 {

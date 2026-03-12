@@ -1,4 +1,4 @@
-package jetstreamtrace
+package oteljetstream
 
 import (
 	"context"
@@ -9,11 +9,11 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.27.0"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/Marz32onE/natstrace/natstrace"
+	"github.com/Marz32onE/instrumentation-go/otel-nats/otelnats"
 )
 
 // MsgHandler is the callback for Consume. Receives MsgWithContext (implements Msg; use m.Data(), m.Ack(), m.Context()).
-// Type name matches nats.MsgHandler and natstrace.MsgHandler for unified naming.
+// Type name matches nats.MsgHandler and otelnats.MsgHandler for unified naming.
 type MsgHandler func(m MsgWithContext)
 
 // ConsumeContext is returned by Consume. Same as jetstream.ConsumeContext; call Stop() when done.
@@ -68,7 +68,7 @@ type Consumer interface {
 const attrConsumerName = "messaging.consumer.name"
 
 type consumerImpl struct {
-	conn         *natstrace.Conn
+	conn         *otelnats.Conn
 	streamName   string
 	consumerName string
 	c            jetstream.Consumer
@@ -81,7 +81,7 @@ func (c *consumerImpl) Consume(handler MsgHandler, opts ...jetstream.PullConsume
 		if h == nil {
 			h = make(nats.Header)
 		}
-		msgCtx := prop.Extract(context.Background(), &natstrace.HeaderCarrier{H: h})
+		msgCtx := prop.Extract(context.Background(), &otelnats.HeaderCarrier{H: h})
 		spanName := "process " + msg.Subject()
 		attrs := append(receiveAttrs(msg, "process"), attribute.String(attrConsumerName, c.consumerName))
 		startOpts := []trace.SpanStartOption{
@@ -123,7 +123,7 @@ func (c *consumerImpl) Next(ctx context.Context, opts ...jetstream.FetchOpt) (co
 		h = make(nats.Header)
 	}
 	_, prop := c.conn.TraceContext()
-	msgCtx := prop.Extract(context.Background(), &natstrace.HeaderCarrier{H: h})
+	msgCtx := prop.Extract(context.Background(), &otelnats.HeaderCarrier{H: h})
 	return msgCtx, msg, nil
 }
 
@@ -191,7 +191,7 @@ func (m *messageBatchTrace) Error() error {
 	return m.raw.Error()
 }
 
-func wrapMessageBatch(conn *natstrace.Conn, consumerName string, raw jetstream.MessageBatch) MessageBatch {
+func wrapMessageBatch(conn *otelnats.Conn, consumerName string, raw jetstream.MessageBatch) MessageBatch {
 	ch := make(chan MsgWithContext)
 	msgsCh := make(chan Msg)
 	go func() {
@@ -208,7 +208,7 @@ func wrapMessageBatch(conn *natstrace.Conn, consumerName string, raw jetstream.M
 			if h == nil {
 				h = make(nats.Header)
 			}
-			msgCtx := prop.Extract(context.Background(), &natstrace.HeaderCarrier{H: h})
+			msgCtx := prop.Extract(context.Background(), &otelnats.HeaderCarrier{H: h})
 			spanName := "receive " + msg.Subject()
 			attrs := append(receiveAttrs(msg, "receive"), attribute.String(attrConsumerName, consumerName))
 			opts := []trace.SpanStartOption{
@@ -241,7 +241,7 @@ func (c *consumeContextImpl) Stop() {
 }
 
 type messagesContextImpl struct {
-	conn         *natstrace.Conn
+	conn         *otelnats.Conn
 	consumerName string
 	iter         jetstream.MessagesContext
 	lastSpan     trace.Span
@@ -261,7 +261,7 @@ func (m *messagesContextImpl) Next(opts ...jetstream.NextOpt) (context.Context, 
 		h = make(nats.Header)
 	}
 	tracer, prop := m.conn.TraceContext()
-	msgCtx := prop.Extract(context.Background(), &natstrace.HeaderCarrier{H: h})
+	msgCtx := prop.Extract(context.Background(), &otelnats.HeaderCarrier{H: h})
 	spanName := "receive " + msg.Subject()
 	attrs := append(receiveAttrs(msg, "receive"), attribute.String(attrConsumerName, m.consumerName))
 	startOpts := []trace.SpanStartOption{

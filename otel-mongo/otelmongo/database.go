@@ -1,4 +1,4 @@
-package mongotrace
+package otelmongo
 
 import (
 	"go.mongodb.org/mongo-driver/v2/mongo"

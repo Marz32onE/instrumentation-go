@@ -1,8 +1,8 @@
-// Package mongotrace provides a MongoDB driver v2 wrapper that propagates
+// Package otelmongo provides a MongoDB driver v2 wrapper that propagates
 // OpenTelemetry trace contexts to and from documents stored in MongoDB.
 // Trace metadata is stored in a reserved field named "_oteltrace" in each
 // document, enabling full lifecycle tracing of data across services.
-package mongotrace
+package otelmongo
 
 import (
 	"context"
@@ -45,12 +45,12 @@ func traceMetadataFromContext(ctx context.Context) (*TraceMetadata, bool) {
 func injectTraceIntoDocument(ctx context.Context, document any) (bson.D, error) {
 	raw, err := bson.Marshal(document)
 	if err != nil {
-		return nil, fmt.Errorf("mongotrace: marshal document: %w", err)
+		return nil, fmt.Errorf("otelmongo: marshal document: %w", err)
 	}
 
 	doc := make(bson.D, 0, 1)
 	if err := bson.Unmarshal(raw, &doc); err != nil {
-		return nil, fmt.Errorf("mongotrace: unmarshal document: %w", err)
+		return nil, fmt.Errorf("otelmongo: unmarshal document: %w", err)
 	}
 
 	meta, ok := traceMetadataFromContext(ctx)
@@ -125,12 +125,12 @@ func injectTraceIntoUpdate(ctx context.Context, update any) (any, error) {
 
 	raw, err := bson.Marshal(update)
 	if err != nil {
-		return update, fmt.Errorf("mongotrace: marshal update: %w", err)
+		return update, fmt.Errorf("otelmongo: marshal update: %w", err)
 	}
 
 	doc := make(bson.D, 0, 1)
 	if err := bson.Unmarshal(raw, &doc); err != nil {
-		return update, fmt.Errorf("mongotrace: unmarshal update: %w", err)
+		return update, fmt.Errorf("otelmongo: unmarshal update: %w", err)
 	}
 
 	if len(doc) > 0 && len(doc[0].Key) > 0 && doc[0].Key[0] == '$' {

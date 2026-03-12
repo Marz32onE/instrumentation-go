@@ -1,4 +1,4 @@
-package jetstreamtrace_test
+package oteljetstream_test
 
 import (
 	"context"
@@ -7,22 +7,22 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/sdk/trace"
 
-	"github.com/Marz32onE/natstrace/jetstreamtrace"
-	natstrace "github.com/Marz32onE/natstrace/natstrace"
+	"github.com/Marz32onE/instrumentation-go/otel-nats/oteljetstream"
+	otelnats "github.com/Marz32onE/instrumentation-go/otel-nats/otelnats"
 )
 
 func TestStreamInfo(t *testing.T) {
 	url := startJetStreamServer(t)
-	_ = natstrace.InitTracer("", natstrace.WithTracerProvider(trace.NewTracerProvider()))
-	conn, err := natstrace.Connect(url, nil)
+	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(trace.NewTracerProvider()))
+	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
 
-	js, err := jetstreamtrace.New(conn)
+	js, err := oteljetstream.New(conn)
 	require.NoError(t, err)
 	ctx := context.Background()
 	streamName := "INFOTEST"
-	_, err = js.CreateOrUpdateStream(ctx, jetstreamtrace.StreamConfig{
+	_, err = js.CreateOrUpdateStream(ctx, oteljetstream.StreamConfig{
 		Name:     streamName,
 		Subjects: []string{"info.>"},
 	})
@@ -39,16 +39,16 @@ func TestStreamInfo(t *testing.T) {
 
 func TestStreamCachedInfo(t *testing.T) {
 	url := startJetStreamServer(t)
-	_ = natstrace.InitTracer("", natstrace.WithTracerProvider(trace.NewTracerProvider()))
-	conn, err := natstrace.Connect(url, nil)
+	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(trace.NewTracerProvider()))
+	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
 
-	js, err := jetstreamtrace.New(conn)
+	js, err := oteljetstream.New(conn)
 	require.NoError(t, err)
 	ctx := context.Background()
 	streamName := "CACHEDINFOTEST"
-	_, err = js.CreateOrUpdateStream(ctx, jetstreamtrace.StreamConfig{
+	_, err = js.CreateOrUpdateStream(ctx, oteljetstream.StreamConfig{
 		Name:     streamName,
 		Subjects: []string{"cached.>"},
 	})
@@ -65,16 +65,16 @@ func TestStreamCachedInfo(t *testing.T) {
 
 func TestStreamConsumerNames(t *testing.T) {
 	url := startJetStreamServer(t)
-	_ = natstrace.InitTracer("", natstrace.WithTracerProvider(trace.NewTracerProvider()))
-	conn, err := natstrace.Connect(url, nil)
+	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(trace.NewTracerProvider()))
+	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
 
-	js, err := jetstreamtrace.New(conn)
+	js, err := oteljetstream.New(conn)
 	require.NoError(t, err)
 	ctx := context.Background()
 	streamName := "NAMESTEST"
-	_, err = js.CreateOrUpdateStream(ctx, jetstreamtrace.StreamConfig{
+	_, err = js.CreateOrUpdateStream(ctx, oteljetstream.StreamConfig{
 		Name:     streamName,
 		Subjects: []string{"names.>"},
 	})
@@ -82,10 +82,10 @@ func TestStreamConsumerNames(t *testing.T) {
 
 	stream, err := js.Stream(ctx, streamName)
 	require.NoError(t, err)
-	_, err = stream.CreateOrUpdateConsumer(ctx, jetstreamtrace.ConsumerConfig{
+	_, err = stream.CreateOrUpdateConsumer(ctx, oteljetstream.ConsumerConfig{
 		Durable:       "cn1",
 		FilterSubject: "names.x",
-		AckPolicy:     jetstreamtrace.AckExplicitPolicy,
+		AckPolicy:     oteljetstream.AckExplicitPolicy,
 	})
 	require.NoError(t, err)
 
@@ -100,16 +100,16 @@ func TestStreamConsumerNames(t *testing.T) {
 
 func TestStreamCreateConsumer(t *testing.T) {
 	url := startJetStreamServer(t)
-	_ = natstrace.InitTracer("", natstrace.WithTracerProvider(trace.NewTracerProvider()))
-	conn, err := natstrace.Connect(url, nil)
+	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(trace.NewTracerProvider()))
+	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
 
-	js, err := jetstreamtrace.New(conn)
+	js, err := oteljetstream.New(conn)
 	require.NoError(t, err)
 	ctx := context.Background()
 	streamName := "CREATECONSTEST"
-	_, err = js.CreateOrUpdateStream(ctx, jetstreamtrace.StreamConfig{
+	_, err = js.CreateOrUpdateStream(ctx, oteljetstream.StreamConfig{
 		Name:     streamName,
 		Subjects: []string{"createcons.>"},
 	})
@@ -118,10 +118,10 @@ func TestStreamCreateConsumer(t *testing.T) {
 	stream, err := js.Stream(ctx, streamName)
 	require.NoError(t, err)
 
-	cons, err := stream.CreateConsumer(ctx, jetstreamtrace.ConsumerConfig{
+	cons, err := stream.CreateConsumer(ctx, oteljetstream.ConsumerConfig{
 		Durable:       "create-only",
 		FilterSubject: "createcons.a",
-		AckPolicy:     jetstreamtrace.AckExplicitPolicy,
+		AckPolicy:     oteljetstream.AckExplicitPolicy,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, cons)
@@ -130,16 +130,16 @@ func TestStreamCreateConsumer(t *testing.T) {
 
 func TestStreamDeleteConsumer(t *testing.T) {
 	url := startJetStreamServer(t)
-	_ = natstrace.InitTracer("", natstrace.WithTracerProvider(trace.NewTracerProvider()))
-	conn, err := natstrace.Connect(url, nil)
+	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(trace.NewTracerProvider()))
+	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
 
-	js, err := jetstreamtrace.New(conn)
+	js, err := oteljetstream.New(conn)
 	require.NoError(t, err)
 	ctx := context.Background()
 	streamName := "DELCONSTEST"
-	_, err = js.CreateOrUpdateStream(ctx, jetstreamtrace.StreamConfig{
+	_, err = js.CreateOrUpdateStream(ctx, oteljetstream.StreamConfig{
 		Name:     streamName,
 		Subjects: []string{"delcons.>"},
 	})
@@ -147,10 +147,10 @@ func TestStreamDeleteConsumer(t *testing.T) {
 
 	stream, err := js.Stream(ctx, streamName)
 	require.NoError(t, err)
-	_, err = stream.CreateOrUpdateConsumer(ctx, jetstreamtrace.ConsumerConfig{
+	_, err = stream.CreateOrUpdateConsumer(ctx, oteljetstream.ConsumerConfig{
 		Durable:       "to-delete",
 		FilterSubject: "delcons.x",
-		AckPolicy:     jetstreamtrace.AckExplicitPolicy,
+		AckPolicy:     oteljetstream.AckExplicitPolicy,
 	})
 	require.NoError(t, err)
 
@@ -163,16 +163,16 @@ func TestStreamDeleteConsumer(t *testing.T) {
 
 func TestJetStreamDeleteStream(t *testing.T) {
 	url := startJetStreamServer(t)
-	_ = natstrace.InitTracer("", natstrace.WithTracerProvider(trace.NewTracerProvider()))
-	conn, err := natstrace.Connect(url, nil)
+	_ = otelnats.InitTracer("", otelnats.WithTracerProviderInit(trace.NewTracerProvider()))
+	conn, err := otelnats.Connect(url, nil)
 	require.NoError(t, err)
 	defer conn.Close()
 
-	js, err := jetstreamtrace.New(conn)
+	js, err := oteljetstream.New(conn)
 	require.NoError(t, err)
 	ctx := context.Background()
 	streamName := "DELSTREAMTEST"
-	_, err = js.CreateOrUpdateStream(ctx, jetstreamtrace.StreamConfig{
+	_, err = js.CreateOrUpdateStream(ctx, oteljetstream.StreamConfig{
 		Name:     streamName,
 		Subjects: []string{"delstream.>"},
 	})
