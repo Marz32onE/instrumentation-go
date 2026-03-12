@@ -1,8 +1,8 @@
-module github.com/Marz32onE/otelwebsocket/example
+module github.com/Marz32onE/instrumentation-go/otel-websocket/example
 
 go 1.25.0
 
-replace github.com/Marz32onE/otelwebsocket => ../
+replace github.com/Marz32onE/instrumentation-go/otel-websocket => ../
 
 require (
 	go.opentelemetry.io/otel v1.42.0

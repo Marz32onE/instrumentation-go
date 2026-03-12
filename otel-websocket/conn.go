@@ -39,7 +39,7 @@ import (
 )
 
 // ScopeName is the instrumentation scope name for Tracer creation (OTel contrib guideline).
-const ScopeName = "github.com/Marz32onE/otelwebsocket"
+const ScopeName = "github.com/Marz32onE/instrumentation-go/otel-websocket"
 
 // Conn is a WebSocket connection with built-in OpenTelemetry trace-context
 // propagation.  It embeds *websocket.Conn so that callers can still use all

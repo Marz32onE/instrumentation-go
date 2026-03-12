@@ -26,7 +26,7 @@ Per [OTel Go Contrib](https://github.com/open-telemetry/opentelemetry-go-contrib
 ## Installation
 
 ```bash
-go get github.com/Marz32onE/otelwebsocket
+go get github.com/Marz32onE/instrumentation-go/otel-websocket
 ```
 
 ## Quick start

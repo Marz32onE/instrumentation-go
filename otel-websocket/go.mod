@@ -1,4 +1,4 @@
-module github.com/Marz32onE/otelwebsocket
+module github.com/Marz32onE/instrumentation-go/otel-websocket
 
 go 1.25.0
 

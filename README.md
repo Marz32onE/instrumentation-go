@@ -9,7 +9,7 @@ OpenTelemetry instrumentation packages for NATS, MongoDB, and WebSocket, aligned
 | **otel-nats** | `github.com/Marz32onE/instrumentation-go/otel-nats/otelnats` | Core NATS connection, Publish, Subscribe (W3C trace in headers). |
 | **otel-nats** | `github.com/Marz32onE/instrumentation-go/otel-nats/oteljetstream` | JetStream streams, consumers, Publish, Consume, Messages, Fetch. |
 | **otel-mongo** | `github.com/Marz32onE/instrumentation-go/otel-mongo/otelmongo` | MongoDB client wrapper; `_oteltrace` in documents, ContextFromDocument for change streams. |
-| **otel-websocket** | `github.com/Marz32onE/otelwebsocket` | WebSocket trace-context propagation (JSON envelope in message body). |
+| **otel-websocket** | `github.com/Marz32onE/instrumentation-go/otel-websocket` | WebSocket trace-context propagation (JSON envelope in message body). |
 
 ## Layout
 

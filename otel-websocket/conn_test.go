@@ -14,7 +14,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 
-	otelwebsocket "github.com/Marz32onE/otelwebsocket"
+	otelwebsocket "github.com/Marz32onE/instrumentation-go/otel-websocket"
 )
 
 // setupOTel installs an in-memory trace exporter and W3C propagator so that
