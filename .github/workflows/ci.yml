@@ -1,52 +1,45 @@
+# CI: unit tests and golangci-lint for all Go modules in this repo.
 name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, "feat/*"]
   pull_request:
-    branches: [main, master]
+    branches: [main, master, "feat/*"]
 
 permissions:
   contents: read
 
 jobs:
-  lint:
-    name: Lint
+  test-and-lint:
+    name: Go (${{ matrix.module }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - otel-mongo
+          - otel-mongo/v2
+          - otel-websocket
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
-          cache-dependency-path: go.sum
+          go-version: "1.25"
+          # No cache-dependency-path: repo has no root go.mod; each module has its own go.sum
+
+      - name: Build
+        run: go build ./...
+        working-directory: ${{ matrix.module }}
+
+      - name: Test
+        run: go test -v -race ./...
+        working-directory: ${{ matrix.module }}
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
           version: latest
-
-  test:
-    name: Unit Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: go.sum
-
-      - name: Download modules
-        run: go mod download
-
-      - name: Run unit tests
-        run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
-
-      - name: Upload coverage report
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: coverage.out
+          working-directory: ${{ matrix.module }}
