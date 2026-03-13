@@ -3,7 +3,7 @@ package otelmongo
 import (
 	"context"
 
-	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 // InsertOneResult wraps *mongo.InsertOneResult. Use when calling Collection.InsertOne.

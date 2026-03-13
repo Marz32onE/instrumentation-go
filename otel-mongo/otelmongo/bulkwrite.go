@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 // buildBulkWriteModelsWithTrace returns a new slice of WriteModels with _oteltrace
@@ -26,7 +26,7 @@ func buildBulkWriteModelsWithTrace(ctx context.Context, models []mongo.WriteMode
 			}
 			out = append(out, mongo.NewInsertOneModel().SetDocument(docWithTrace))
 		case *mongo.UpdateOneModel:
-			filter, update, ok := getUpdateModelFilterUpdate(vm)
+			filter, update, ok := getUpdateOneModelFilterUpdate(vm)
 			if !ok {
 				out = append(out, m)
 				continue
@@ -67,8 +67,8 @@ func getInsertOneModelDocument(m *mongo.InsertOneModel) (any, bool) {
 	return f.Interface(), true
 }
 
-// getUpdateModelFilterUpdate returns filter and update from *mongo.UpdateOneModel via reflection.
-func getUpdateModelFilterUpdate(m *mongo.UpdateOneModel) (filter, update any, ok bool) {
+// getUpdateOneModelFilterUpdate returns filter and update from *mongo.UpdateOneModel via reflection.
+func getUpdateOneModelFilterUpdate(m *mongo.UpdateOneModel) (filter, update any, ok bool) {
 	if m == nil {
 		return nil, nil, false
 	}
@@ -94,4 +94,3 @@ func getUpdateManyModelFilterUpdate(m *mongo.UpdateManyModel) (filter, update an
 	}
 	return filterF.Interface(), updateF.Interface(), true
 }
-

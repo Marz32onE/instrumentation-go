@@ -4,7 +4,16 @@
 
 ---
 
-OpenTelemetry wrapper around the [MongoDB Go Driver v2](https://www.mongodb.com/docs/drivers/go/current/). Injects **W3C Trace Context** into documents on write (`_oteltrace` field) and restores it on read so the same trace can be followed across services. Per [OTel Go Contrib](https://github.com/open-telemetry/opentelemetry-go-contrib/tree/main/instrumentation): the package accepts **TracerProvider** and **Propagators** via options; it does **not** provide InitTracer. Set the global provider and propagator at process startup (see **example/**).
+OpenTelemetry wrapper around the [MongoDB Go Driver](https://www.mongodb.com/docs/drivers/go/current/). Injects **W3C Trace Context** into documents on write (`_oteltrace` field) and restores it on read so the same trace can be followed across services. Per [OTel Go Contrib](https://github.com/open-telemetry/opentelemetry-go-contrib/tree/main/instrumentation): the package accepts **TracerProvider** and **Propagators** via options; it does **not** provide InitTracer. Set the global provider and propagator at process startup (see **example/**).
+
+Two driver versions are supported (Go convention: v2 lives under `/v2` for a clear import path):
+
+| Import path | Driver | Use when |
+|------------|--------|----------|
+| `github.com/Marz32onE/instrumentation-go/otel-mongo/v2` | MongoDB Go Driver **v2** | New projects or v2 driver (recommended) |
+| `github.com/Marz32onE/instrumentation-go/otel-mongo/otelmongo` | MongoDB Go Driver **v1** | Existing code using v1 driver |
+
+Both packages expose the same API surface (Client, Collection, Cursor, ContextFromDocument, etc.) and the same `_oteltrace` document-level propagation.
 
 ---
 
@@ -12,16 +21,17 @@ OpenTelemetry wrapper around the [MongoDB Go Driver v2](https://www.mongodb.com/
 
 ```
 otel-mongo/
-└── otelmongo/
-    ├── version.go      # ScopeName, Version()
-    ├── client.go       # Client, Connect, ConnectWithOptions, NewClient, WithTracerProvider, WithPropagators
-    ├── database.go     # Database, Collection
-    ├── collection.go   # InsertOne, InsertMany, Find, FindOne, UpdateOne, UpdateMany, ReplaceOne, DeleteOne, DeleteMany
-    ├── cursor.go       # Cursor (DecodeWithContext), SingleResult
-    ├── tracing.go      # _oteltrace inject/extract, ContextFromDocument
-    ├── semconv.go      # OTel DB/MongoDB semantics
-    ├── example/        # How to create TracerProvider + set global + use otelmongo
-    └── *_test.go
+├── otelmongo/           # MongoDB driver v1 wrapper (root module)
+│   ├── version.go, client.go, database.go, collection.go, cursor.go
+│   ├── tracing.go, semconv.go, bulkwrite.go, results.go
+│   └── ...
+├── v2/                  # MongoDB driver v2 wrapper (separate module, import .../v2)
+│   ├── go.mod           # module .../otel-mongo/v2, requires go.mongodb.org/mongo-driver/v2
+│   ├── version.go, client.go, database.go, collection.go, cursor.go
+│   ├── tracing.go, semconv.go, bulkwrite.go, results.go
+│   └── *_test.go
+├── example/             # TracerProvider + global + otelmongo (uses v2)
+└── README.md
 ```
 
 - **Trace storage:** Written/updated documents get a reserved **`_oteltrace`** field (W3C `traceparent` and optional `tracestate`). Use **ContextFromDocument(ctx, raw)** for raw BSON (e.g. change streams).
@@ -37,9 +47,11 @@ See **example/main.go**. In short: create TracerProvider (e.g. OTLP), set `otel.
 
 ### 2. Connect and use
 
+**MongoDB driver v2** (recommended; import path aligns with Go convention):
+
 ```go
 import (
-    "github.com/Marz32onE/instrumentation-go/otel-mongo/otelmongo"
+    "github.com/Marz32onE/instrumentation-go/otel-mongo/v2"
     "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
@@ -52,7 +64,25 @@ coll := db.Collection("mycoll")
 // InsertOne, Find, UpdateOne, etc. handle _oteltrace automatically
 ```
 
-Optional: **ConnectWithOptions(traceOpts, mongoOpts)** with **WithTracerProvider(tp)** or **WithPropagators(p)**.
+**MongoDB driver v1** (same API, different import and Connect signature):
+
+```go
+import (
+    "context"
+    "github.com/Marz32onE/instrumentation-go/otel-mongo/otelmongo"
+    "go.mongodb.org/mongo-driver/mongo/options"
+)
+
+client, err := otelmongo.Connect(ctx, options.Client().ApplyURI(uri))
+if err != nil { log.Fatal(err) }
+defer client.Disconnect(ctx)
+
+db := client.Database("mydb")
+coll := db.Collection("mycoll")
+// Same CRUD and _oteltrace behaviour as v2 wrapper
+```
+
+Optional: **ConnectWithOptions(ctx, traceOpts, mongoOpts)** (v1) or **ConnectWithOptions(traceOpts, mongoOpts)** (v2) with **WithTracerProvider(tp)** or **WithPropagators(p)**.
 
 ### 3. Restore trace from document (e.g. change streams)
 
@@ -84,7 +114,6 @@ client, err := otelmongo.Connect(opts)
 
 ## Dependencies
 
-- `go.mongodb.org/mongo-driver/v2`
-- `go.opentelemetry.io/contrib/instrumentation/.../mongo/otelmongo` (driver-level spans, imported as contribmongo)
-- `go.opentelemetry.io/otel` and SDK
+- **v2** (`.../otel-mongo/v2`): `go.mongodb.org/mongo-driver/v2`, `go.opentelemetry.io/contrib/instrumentation/.../v2/mongo/otelmongo`, `go.opentelemetry.io/otel` and SDK. See `v2/go.mod`.
+- **otelmongo** (v1, root): `go.mongodb.org/mongo-driver` v1, `go.opentelemetry.io/contrib/instrumentation/.../mongo/otelmongo`, `go.opentelemetry.io/otel` and SDK. See root `go.mod`.
 - Go 1.25+

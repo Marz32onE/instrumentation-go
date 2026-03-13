@@ -8,7 +8,7 @@ import (
 	"errors"
 	"strconv"
 
-	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -77,9 +77,9 @@ func recordSpanError(span trace.Span, err error) {
 
 	var writeErr mongo.WriteException
 	if errors.As(err, &writeErr) {
-		errCodes := writeErr.ErrorCodes()
-		if len(errCodes) > 0 {
-			codeStr := strconv.Itoa(errCodes[0])
+		writeErrors := writeErr.WriteErrors
+		if len(writeErrors) > 0 {
+			codeStr := strconv.Itoa(int(writeErrors[0].Code))
 			span.SetAttributes(
 				attribute.String(keyDBResponseStatusCode, codeStr),
 				attribute.String(keyErrorType, codeStr),

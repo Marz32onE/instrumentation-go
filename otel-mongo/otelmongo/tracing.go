@@ -1,4 +1,4 @@
-// Package otelmongo provides a MongoDB driver v2 wrapper that propagates
+// Package otelmongo provides a MongoDB driver v1 wrapper that propagates
 // OpenTelemetry trace contexts to and from documents stored in MongoDB.
 // Trace metadata is stored in a reserved field named "_oteltrace" in each
 // document, enabling full lifecycle tracing of data across services.
@@ -8,7 +8,7 @@ import (
 	"context"
 	"fmt"
 
-	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"

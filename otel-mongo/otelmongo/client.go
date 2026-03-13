@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"strings"
 
-	"go.mongodb.org/mongo-driver/v2/mongo"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
-	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
-	contribmongo "go.opentelemetry.io/contrib/instrumentation/go.mongodb.org/mongo-driver/v2/mongo/otelmongo"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readpref"
+	contribmongo "go.opentelemetry.io/contrib/instrumentation/go.mongodb.org/mongo-driver/mongo/otelmongo"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
@@ -64,14 +64,14 @@ func newClientConfig(opts []ClientOption) *clientConfig {
 }
 
 // Connect creates a new Client with the given configuration options, with OpenTelemetry instrumentation.
-// Signature aligns with mongo.Connect(opts ...*options.ClientOptions). TracerProvider and Propagators default to global.
-// Set them at process startup (see example/) or pass WithTracerProvider/WithPropagators via ConnectWithOptions.
-func Connect(opts ...*options.ClientOptions) (*Client, error) {
-	return ConnectWithOptions(nil, opts...)
+// Signature aligns with mongo.Connect(ctx, opts ...*options.ClientOptions). TracerProvider and Propagators default to global.
+func Connect(ctx context.Context, opts ...*options.ClientOptions) (*Client, error) {
+	return ConnectWithOptions(ctx, nil, opts...)
 }
 
 // ConnectWithOptions creates a Client. Passed-in TracerProvider/Propagators are set to otel globals; tracer/propagator are then read from globals.
-func ConnectWithOptions(traceOpts []ClientOption, opts ...*options.ClientOptions) (*Client, error) {
+// v1 driver requires context for Connect.
+func ConnectWithOptions(ctx context.Context, traceOpts []ClientOption, opts ...*options.ClientOptions) (*Client, error) {
 	cfg := newClientConfig(traceOpts)
 	if cfg.TracerProvider != nil {
 		otel.SetTracerProvider(cfg.TracerProvider)
@@ -83,18 +83,26 @@ func ConnectWithOptions(traceOpts []ClientOption, opts ...*options.ClientOptions
 	monitor := contribmongo.NewMonitor(contribmongo.WithTracerProvider(tp))
 	base := options.Client().SetMonitor(monitor)
 	merged := options.MergeClientOptions(append(opts, base)...)
-	mc, err := mongo.Connect(merged)
+	mc, err := mongo.Connect(ctx, merged)
 	if err != nil {
 		return nil, err
 	}
-	addr, port := parseServerFromURI(merged.GetURI())
+	// v1 ClientOptions does not expose GetURI(); server attributes are left empty when using Connect.
+	addr, port := "", 0
 	return &Client{Client: mc, serverAddr: addr, serverPort: port}, nil
 }
 
 // NewClient connects to MongoDB using uri and returns an instrumented Client.
 // For custom TracerProvider/Propagators pass ClientOptions.
-func NewClient(uri string, traceOpts ...ClientOption) (*Client, error) {
-	return ConnectWithOptions(traceOpts, options.Client().ApplyURI(uri))
+func NewClient(ctx context.Context, uri string, traceOpts ...ClientOption) (*Client, error) {
+	client, err := ConnectWithOptions(ctx, traceOpts, options.Client().ApplyURI(uri))
+	if err != nil {
+		return nil, err
+	}
+	addr, port := parseServerFromURI(uri)
+	client.serverAddr = addr
+	client.serverPort = port
+	return client, nil
 }
 
 // Disconnect disconnects the MongoDB client.
@@ -110,7 +118,7 @@ func (c *Client) Ping(ctx context.Context, rp *readpref.ReadPref) error {
 
 // StartSession starts a new session. Operations executed with the session
 // should use this client's Database/Collection so document-level tracing applies.
-func (c *Client) StartSession(opts ...options.Lister[options.SessionOptions]) (*mongo.Session, error) {
+func (c *Client) StartSession(opts ...*options.SessionOptions) (mongo.Session, error) {
 	return c.Client.StartSession(opts...)
 }
 
@@ -147,7 +155,7 @@ func parseServerFromURI(uri string) (addr string, port int) {
 }
 
 // Database returns a wrapped Database for document-level tracing (uses otel globals).
-func (c *Client) Database(name string, opts ...options.Lister[options.DatabaseOptions]) *Database {
+func (c *Client) Database(name string, opts ...*options.DatabaseOptions) *Database {
 	return &Database{
 		Database:   c.Client.Database(name, opts...),
 		serverAddr: c.serverAddr,

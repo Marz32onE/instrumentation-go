@@ -11,7 +11,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/Marz32onE/instrumentation-go/otel-mongo/otelmongo"
+	"github.com/Marz32onE/instrumentation-go/otel-mongo/v2"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"

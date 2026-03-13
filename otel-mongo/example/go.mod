@@ -2,10 +2,10 @@ module github.com/Marz32onE/instrumentation-go/otel-mongo/example
 
 go 1.25.0
 
-replace github.com/Marz32onE/instrumentation-go/otel-mongo => ../
+replace github.com/Marz32onE/instrumentation-go/otel-mongo/v2 => ../v2
 
 require (
-	github.com/Marz32onE/instrumentation-go/otel-mongo v0.0.0
+	github.com/Marz32onE/instrumentation-go/otel-mongo/v2 v2.0.0
 	go.mongodb.org/mongo-driver/v2 v2.5.0
 	go.opentelemetry.io/otel v1.42.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.42.0
