@@ -42,10 +42,10 @@ func (c *Cursor) Decode(val any) error {
 // SingleResult wraps *mongo.SingleResult; trace extract uses otel.GetTextMapPropagator().
 type SingleResult struct {
 	*mongo.SingleResult
-	tracer   trace.Tracer
-	span     trace.Span
-	ctx      context.Context
-	endOnce  sync.Once
+	tracer  trace.Tracer
+	span    trace.Span
+	ctx     context.Context
+	endOnce sync.Once
 }
 
 // endSpan ensures the associated span is ended exactly once.

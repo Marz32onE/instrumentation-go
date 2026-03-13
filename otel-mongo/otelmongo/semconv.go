@@ -79,7 +79,7 @@ func recordSpanError(span trace.Span, err error) {
 	if errors.As(err, &writeErr) {
 		writeErrors := writeErr.WriteErrors
 		if len(writeErrors) > 0 {
-			codeStr := strconv.Itoa(int(writeErrors[0].Code))
+			codeStr := strconv.Itoa(writeErrors[0].Code)
 			span.SetAttributes(
 				attribute.String(keyDBResponseStatusCode, codeStr),
 				attribute.String(keyErrorType, codeStr),
