@@ -20,6 +20,7 @@ jobs:
         module:
           - otel-mongo
           - otel-mongo/v2
+          - otel-nats
           - otel-websocket
     steps:
       - uses: actions/checkout@v4
