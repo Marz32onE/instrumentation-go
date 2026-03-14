@@ -131,7 +131,8 @@ func (c *Conn) ReadMessage(ctx context.Context) (context.Context, int, []byte, e
 	if sc := trace.SpanContextFromContext(senderCtx); sc.IsValid() {
 		startOpts = append(startOpts, trace.WithLinks(trace.Link{SpanContext: sc}))
 	}
-	outCtx, span := c.tracer.Start(ctx, "websocket.receive", startOpts...)
+	// Start receive span under sender's trace so returned context has same trace ID.
+	outCtx, span := c.tracer.Start(senderCtx, "websocket.receive", startOpts...)
 	span.End()
 
 	return outCtx, msgType, env.Payload, nil
