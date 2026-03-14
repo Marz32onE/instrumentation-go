@@ -9,7 +9,8 @@ import (
 // Option configures a Conn.
 type Option func(*Conn)
 
-// WithPropagators sets the TextMapPropagator; it is applied to otel.SetTextMapPropagator so globals are used for inject/extract.
+// WithPropagators sets the global TextMapPropagator so all Conn instances in this process use it.
+// Call otel.SetTextMapPropagator at process startup as an alternative to passing this option.
 func WithPropagators(p propagation.TextMapPropagator) Option {
 	return func(c *Conn) {
 		if p != nil {
@@ -18,7 +19,8 @@ func WithPropagators(p propagation.TextMapPropagator) Option {
 	}
 }
 
-// WithTracerProvider sets the TracerProvider; it is applied to otel.SetTracerProvider so globals are used for tracing.
+// WithTracerProvider sets the global TracerProvider so all Conn instances in this process use it.
+// Call otel.SetTracerProvider at process startup as an alternative to passing this option.
 func WithTracerProvider(tp trace.TracerProvider) Option {
 	return func(c *Conn) {
 		if tp != nil {
@@ -33,5 +35,5 @@ func applyOptions(c *Conn, opts []Option) {
 	}
 	// Always read tracer and propagator from otel globals (set by opts above or by process startup).
 	c.propagator = otel.GetTextMapPropagator()
-	c.tracer = otel.GetTracerProvider().Tracer(ScopeName, trace.WithInstrumentationVersion(SemVersion()))
+	c.tracer = otel.GetTracerProvider().Tracer(ScopeName, trace.WithInstrumentationVersion(Version()))
 }

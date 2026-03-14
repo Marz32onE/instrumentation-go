@@ -16,7 +16,6 @@ import (
 const (
 	// ScopeName is the instrumentation scope name for Tracer creation (OTel contrib guideline).
 	ScopeName             = "github.com/Marz32onE/instrumentation-go/otel-nats/otelnats"
-	instrumentationName    = ScopeName
 	instrumentationVersion = "0.1.0"
 	messagingSystem        = "nats"
 )
@@ -169,12 +168,7 @@ func (c *Conn) Request(ctx context.Context, subject string, data []byte, timeout
 	spanName := "send " + subject
 	reqCtx, span := c.tracer.Start(reqCtx, spanName,
 		trace.WithSpanKind(trace.SpanKindProducer),
-		trace.WithAttributes(
-			semconv.MessagingSystemKey.String(messagingSystem),
-			semconv.MessagingDestinationNameKey.String(subject),
-			attribute.String(string(semconv.MessagingOperationTypeKey), "send"),
-			semconv.MessagingOperationNameKey.String("publish"),
-		),
+		trace.WithAttributes(publishAttrs(msg)...),
 	)
 	defer span.End()
 	c.propagator.Inject(reqCtx, &HeaderCarrier{H: msg.Header})

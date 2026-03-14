@@ -79,6 +79,29 @@ conn := otelwebsocket.NewConn(raw,
 conn, resp, err := otelwebsocket.Dial(ctx, serverURL, nil)
 ```
 
+## Spans created
+
+| Method | Span name | Kind |
+|--------|-----------|------|
+| `WriteMessage` | `websocket.send` | Producer |
+| `ReadMessage` | `websocket.receive` | Consumer |
+
+`ReadMessage` creates a span linked to the sender's span (not parent-child), following OTel async messaging convention. Both spans carry `websocket.message.type` and `messaging.message.body.size` attributes.
+
+## Global state
+
+`WithTracerProvider` and `WithPropagators` call `otel.SetTracerProvider` / `otel.SetTextMapPropagator`, updating the **global** OTel state for the whole process. If you create multiple `Conn` instances with different providers, the last one wins. For most applications, set the global once at startup and use `otelwebsocket.NewConn(raw)` without options.
+
+## Wire format
+
+Every `WriteMessage` call wraps the payload in a JSON envelope:
+
+```json
+{ "headers": { "traceparent": "00-…-01" }, "payload": <original bytes> }
+```
+
+**Both sides must use this library** for automatic envelope unwrapping to work. If the other side sends a plain (non-envelope) message, `ReadMessage` returns the raw bytes unchanged — no error, no span context. This makes it safe to introduce the library incrementally.
+
 ## Backward compatibility
 
 If a message was **not** produced by this library (i.e. it is not a valid JSON envelope), `ReadMessage` returns the raw bytes unchanged and no span context is injected into the returned context. This makes it safe to introduce `otelwebsocket` incrementally alongside plain WebSocket messages.

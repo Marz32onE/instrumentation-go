@@ -19,7 +19,7 @@ func Version() string {
 	return "0.1.0"
 }
 
-// SemVersion is the semantic version for tracer creation.
+// SemVersion returns the version string for tracer creation. Alias for Version().
 func SemVersion() string {
-	return "semver:" + Version()
+	return Version()
 }

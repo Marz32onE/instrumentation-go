@@ -118,6 +118,33 @@ conn, err := otelnats.Connect(url, nil)
 
 ---
 
+## Important: MessageBatch channel exclusivity
+
+`MessageBatch` (returned by `Fetch`, `FetchBytes`, `FetchNoWait`) exposes two channels:
+
+| Method | Returns |
+|--------|---------|
+| `MessagesWithContext()` | `<-chan MsgWithContext` — message + extracted trace context |
+| `Messages()` | `<-chan Msg` — raw message only (derived from the above) |
+
+**Call only one of the two on any given batch.** `Messages()` internally consumes the `MessagesWithContext()` channel — calling both simultaneously will split messages between consumers unpredictably.
+
+```go
+// Correct: use one or the other
+batch, _ := consumer.Fetch(10)
+for mwc := range batch.MessagesWithContext() {   // ← trace context included
+    ctx := mwc.Context()
+    mwc.Ack()
+}
+
+// Also correct: ignore trace context
+for msg := range batch.Messages() {
+    msg.Ack()
+}
+```
+
+---
+
 ## Dependencies
 
 - `github.com/nats-io/nats.go` (includes JetStream)

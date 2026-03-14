@@ -69,8 +69,9 @@ func Connect(ctx context.Context, opts ...*options.ClientOptions) (*Client, erro
 	return ConnectWithOptions(ctx, nil, opts...)
 }
 
-// ConnectWithOptions creates a Client. Passed-in TracerProvider/Propagators are set to otel globals; tracer/propagator are then read from globals.
-// v1 driver requires context for Connect.
+// ConnectWithOptions creates a Client. Passed-in TracerProvider/Propagators are set to otel globals;
+// tracer/propagator are then read from globals. Call otel.SetTracerProvider and otel.SetTextMapPropagator
+// at process startup as an alternative to passing options here.
 func ConnectWithOptions(ctx context.Context, traceOpts []ClientOption, opts ...*options.ClientOptions) (*Client, error) {
 	cfg := newClientConfig(traceOpts)
 	if cfg.TracerProvider != nil {
@@ -88,20 +89,17 @@ func ConnectWithOptions(ctx context.Context, traceOpts []ClientOption, opts ...*
 		return nil, err
 	}
 	// v1 ClientOptions does not expose GetURI(); server attributes are left empty when using Connect.
-	addr, port := "", 0
-	return &Client{Client: mc, serverAddr: addr, serverPort: port}, nil
+	return &Client{Client: mc}, nil
 }
 
 // NewClient connects to MongoDB using uri and returns an instrumented Client.
-// For custom TracerProvider/Propagators pass ClientOptions.
+// For custom TracerProvider/Propagators pass traceOpts.
 func NewClient(ctx context.Context, uri string, traceOpts ...ClientOption) (*Client, error) {
 	client, err := ConnectWithOptions(ctx, traceOpts, options.Client().ApplyURI(uri))
 	if err != nil {
 		return nil, err
 	}
-	addr, port := parseServerFromURI(uri)
-	client.serverAddr = addr
-	client.serverPort = port
+	client.serverAddr, client.serverPort = parseServerFromURI(uri)
 	return client, nil
 }
 

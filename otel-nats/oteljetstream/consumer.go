@@ -174,17 +174,28 @@ func receiveAttrs(msg jetstream.Msg, opType string) []attribute.KeyValue {
 }
 
 type messageBatchTrace struct {
-	ch     chan MsgWithContext
-	msgsCh chan Msg
-	raw    jetstream.MessageBatch
+	ch  chan MsgWithContext
+	raw jetstream.MessageBatch
 }
 
-func (m *messageBatchTrace) Messages() <-chan Msg {
-	return m.msgsCh
-}
-
+// MessagesWithContext returns a channel of messages with their extracted trace contexts.
+// Each span is started when the message is dispatched and ended when the next message
+// arrives or the batch is exhausted.
 func (m *messageBatchTrace) MessagesWithContext() <-chan MsgWithContext {
 	return m.ch
+}
+
+// Messages returns a channel of raw messages without trace context.
+// It derives from MessagesWithContext; do not call both on the same batch.
+func (m *messageBatchTrace) Messages() <-chan Msg {
+	out := make(chan Msg)
+	go func() {
+		defer close(out)
+		for mwc := range m.ch {
+			out <- mwc.Msg
+		}
+	}()
+	return out
 }
 
 func (m *messageBatchTrace) Error() error {
@@ -193,10 +204,8 @@ func (m *messageBatchTrace) Error() error {
 
 func wrapMessageBatch(conn *otelnats.Conn, consumerName string, raw jetstream.MessageBatch) MessageBatch {
 	ch := make(chan MsgWithContext)
-	msgsCh := make(chan Msg)
 	go func() {
 		defer close(ch)
-		defer close(msgsCh)
 		tracer, prop := conn.TraceContext()
 		var lastSpan trace.Span
 		for msg := range raw.Messages() {
@@ -209,7 +218,6 @@ func wrapMessageBatch(conn *otelnats.Conn, consumerName string, raw jetstream.Me
 				h = make(nats.Header)
 			}
 			msgCtx := prop.Extract(context.Background(), &otelnats.HeaderCarrier{H: h})
-			spanName := "receive " + msg.Subject()
 			attrs := append(receiveAttrs(msg, "receive"), attribute.String(attrConsumerName, consumerName))
 			opts := []trace.SpanStartOption{
 				trace.WithSpanKind(trace.SpanKindConsumer),
@@ -218,16 +226,15 @@ func wrapMessageBatch(conn *otelnats.Conn, consumerName string, raw jetstream.Me
 			if sc := trace.SpanContextFromContext(msgCtx); sc.IsValid() {
 				opts = append(opts, trace.WithLinks(trace.LinkFromContext(msgCtx)))
 			}
-			ctx, span := tracer.Start(context.Background(), spanName, opts...)
+			ctx, span := tracer.Start(context.Background(), "receive "+msg.Subject(), opts...)
 			lastSpan = span
 			ch <- MsgWithContext{Msg: msg, Ctx: ctx}
-			msgsCh <- msg
 		}
 		if lastSpan != nil {
 			lastSpan.End()
 		}
 	}()
-	return &messageBatchTrace{ch: ch, msgsCh: msgsCh, raw: raw}
+	return &messageBatchTrace{ch: ch, raw: raw}
 }
 
 type consumeContextImpl struct {

@@ -34,6 +34,8 @@ import (
 	"net/http"
 
 	"github.com/gorilla/websocket"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -60,28 +62,44 @@ func NewConn(conn *websocket.Conn, opts ...Option) *Conn {
 }
 
 // WriteMessage encodes data together with the trace-context headers extracted
-// from ctx and sends the resulting JSON envelope over the WebSocket
-// connection.
+// from ctx and sends the resulting JSON envelope over the WebSocket connection.
+// Creates a "websocket.send" producer span so the send is visible in traces.
 //
 // The messageType must be websocket.TextMessage or websocket.BinaryMessage;
 // the encoded payload is always JSON text regardless of the original type,
 // but the WebSocket frame type is preserved so that receivers can use the
 // same type-switch logic they would use without this library.
 func (c *Conn) WriteMessage(ctx context.Context, messageType int, data []byte) error {
+	ctx, span := c.tracer.Start(ctx, "websocket.send",
+		trace.WithSpanKind(trace.SpanKindProducer),
+		trace.WithAttributes(
+			attribute.Int("websocket.message.type", messageType),
+			attribute.Int("messaging.message.body.size", len(data)),
+		),
+	)
+	defer span.End()
+
 	carrier := make(propagation.MapCarrier)
 	c.propagator.Inject(ctx, carrier)
 
 	encoded, err := marshalEnvelope(carrier, data)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
-	return c.Conn.WriteMessage(messageType, encoded)
+	if err := c.Conn.WriteMessage(messageType, encoded); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+	return nil
 }
 
 // ReadMessage reads the next envelope from the connection, extracts the
 // trace-context headers embedded in it, and returns a new context that
-// carries the remote span.  The returned context is derived from the
-// provided parent ctx.
+// carries the remote span. Creates a "websocket.receive" consumer span linked
+// to the sender's span so the receive is visible in traces.
 //
 // The returned messageType, data, and error values have the same semantics
 // as those of the underlying gorilla *websocket.Conn.ReadMessage.
@@ -98,8 +116,23 @@ func (c *Conn) ReadMessage(ctx context.Context) (context.Context, int, []byte, e
 		return ctx, msgType, raw, nil
 	}
 
+	// Extract sender's trace context from the envelope headers.
 	carrier := propagation.MapCarrier(env.Headers)
-	outCtx := c.propagator.Extract(ctx, carrier)
+	senderCtx := c.propagator.Extract(ctx, carrier)
+
+	// Create a consumer span linked to the sender's span (async messaging convention).
+	startOpts := []trace.SpanStartOption{
+		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(
+			attribute.Int("websocket.message.type", msgType),
+			attribute.Int("messaging.message.body.size", len(env.Payload)),
+		),
+	}
+	if sc := trace.SpanContextFromContext(senderCtx); sc.IsValid() {
+		startOpts = append(startOpts, trace.WithLinks(trace.Link{SpanContext: sc}))
+	}
+	outCtx, span := c.tracer.Start(ctx, "websocket.receive", startOpts...)
+	span.End()
 
 	return outCtx, msgType, env.Payload, nil
 }

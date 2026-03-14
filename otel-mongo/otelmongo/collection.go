@@ -82,7 +82,7 @@ func (c *Collection) Find(ctx context.Context, filter any, opts ...*options.Find
 	if err != nil {
 		return nil, err
 	}
-	return &Cursor{Cursor: cursor, tracer: c.tracer, parentCtx: ctx}, nil
+	return &Cursor{Cursor: cursor, parentCtx: ctx}, nil
 }
 
 // FindOne executes a find command returning at most one document.
@@ -96,7 +96,7 @@ func (c *Collection) FindOne(ctx context.Context, filter any, opts ...*options.F
 		trace.WithAttributes(dbAttributes(dbName, collName, "findOne", 0, c.serverAddr, c.serverPort)...),
 	)
 	sr := c.Collection.FindOne(ctx, filter, opts...)
-	return &SingleResult{SingleResult: sr, tracer: c.tracer, span: span, ctx: ctx}
+	return &SingleResult{SingleResult: sr, span: span, ctx: ctx}
 }
 
 // UpdateOne injects the current trace context into the update so the document's
@@ -135,7 +135,10 @@ func (c *Collection) UpdateMany(ctx context.Context, filter any, update any, opt
 	)
 	defer span.End()
 
-	updateWithTrace, _ := injectTraceIntoUpdate(ctx, update)
+	updateWithTrace, err := injectTraceIntoUpdate(ctx, update)
+	if err != nil {
+		updateWithTrace = update
+	}
 
 	res, err := c.Collection.UpdateMany(ctx, filter, updateWithTrace, opts...)
 	recordSpanError(span, err)
@@ -244,7 +247,7 @@ func (c *Collection) Aggregate(ctx context.Context, pipeline any, opts ...*optio
 	if err != nil {
 		return nil, err
 	}
-	return &Cursor{Cursor: cursor, tracer: c.tracer, parentCtx: ctx}, nil
+	return &Cursor{Cursor: cursor, parentCtx: ctx}, nil
 }
 
 // UpdateByID updates one document by _id. Injects current trace into update
@@ -258,7 +261,10 @@ func (c *Collection) UpdateByID(ctx context.Context, id any, update any, opts ..
 	)
 	defer span.End()
 
-	updateWithTrace, _ := injectTraceIntoUpdate(ctx, update)
+	updateWithTrace, err := injectTraceIntoUpdate(ctx, update)
+	if err != nil {
+		updateWithTrace = update
+	}
 	res, err := c.Collection.UpdateByID(ctx, id, updateWithTrace, opts...)
 	recordSpanError(span, err)
 	if err != nil {

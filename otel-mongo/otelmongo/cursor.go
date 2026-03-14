@@ -12,7 +12,6 @@ import (
 // Cursor wraps *mongo.Cursor; trace extract uses otel.GetTextMapPropagator().
 type Cursor struct {
 	*mongo.Cursor
-	tracer    trace.Tracer
 	parentCtx context.Context
 }
 
@@ -42,7 +41,6 @@ func (c *Cursor) Decode(val any) error {
 // SingleResult wraps *mongo.SingleResult; trace extract uses otel.GetTextMapPropagator().
 type SingleResult struct {
 	*mongo.SingleResult
-	tracer  trace.Tracer
 	span    trace.Span
 	ctx     context.Context
 	endOnce sync.Once

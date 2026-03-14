@@ -15,15 +15,7 @@ import (
 
 const messagingSystem = "nats"
 
-func jetstreamTraceSpanKindProducer() trace.SpanStartOption {
-	return trace.WithSpanKind(trace.SpanKindProducer)
-}
-
-func jetstreamTraceCodesError() codes.Code {
-	return codes.Error
-}
-
-func jetstreamTracePublishAttrs(msg *nats.Msg) trace.SpanStartOption {
+func publishAttrs(msg *nats.Msg) []attribute.KeyValue {
 	attrs := []attribute.KeyValue{
 		semconv.MessagingSystemKey.String(messagingSystem),
 		semconv.MessagingDestinationNameKey.String(msg.Subject),
@@ -33,7 +25,7 @@ func jetstreamTracePublishAttrs(msg *nats.Msg) trace.SpanStartOption {
 	if len(msg.Data) > 0 {
 		attrs = append(attrs, semconv.MessagingMessageBodySize(len(msg.Data)))
 	}
-	return trace.WithAttributes(attrs...)
+	return attrs
 }
 
 // Msg is the JetStream message type (alias of jetstream.Msg). Use so callers need not import jetstream.
@@ -106,17 +98,16 @@ func (j *jsImpl) PublishMsg(ctx context.Context, msg *nats.Msg, opts ...jetstrea
 	if msg.Header == nil {
 		msg.Header = make(nats.Header)
 	}
-	spanName := "send " + msg.Subject
-	ctx, span := tracer.Start(ctx, spanName,
-		jetstreamTraceSpanKindProducer(),
-		jetstreamTracePublishAttrs(msg),
+	ctx, span := tracer.Start(ctx, "send "+msg.Subject,
+		trace.WithSpanKind(trace.SpanKindProducer),
+		trace.WithAttributes(publishAttrs(msg)...),
 	)
 	defer span.End()
 	prop.Inject(ctx, &otelnats.HeaderCarrier{H: msg.Header})
 	ack, err := j.js.PublishMsg(ctx, msg, opts...)
 	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(jetstreamTraceCodesError(), err.Error())
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 	return ack, nil

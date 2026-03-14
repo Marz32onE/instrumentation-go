@@ -112,6 +112,34 @@ client, err := otelmongo.Connect(opts)
 
 ---
 
+## Important notes
+
+### `_oteltrace` field in documents
+
+Every `InsertOne`, `InsertMany`, `ReplaceOne`, and `UpdateOne`/`UpdateMany`/`UpdateByID` call injects a reserved **`_oteltrace`** field into the document (or into `$set` for operator updates) when an active OTel span is present in the context. This field is a subdocument:
+
+```bson
+{ "traceparent": "00-<traceId>-<spanId>-01", "tracestate": "" }
+```
+
+**Impact on your schema:** any application or query that uses strict schema validation or projects specific fields will see this extra field. Add `_oteltrace` to your allowlist or projection if needed.
+
+**Impact on document size:** approximately 100–120 bytes per document. When there is no active span (e.g. in tests without a TracerProvider), no `_oteltrace` field is injected.
+
+### Global OTel state
+
+`WithTracerProvider` and `WithPropagators` (passed to `ConnectWithOptions`) call `otel.SetTracerProvider` / `otel.SetTextMapPropagator`, updating the **global** OTel state for the whole process. For most applications, set the global once at startup and call `Connect` / `NewClient` without trace options.
+
+### DecodeWithContext vs Decode on Cursor
+
+`Cursor.DecodeWithContext` extracts the producer's trace context from `_oteltrace` and returns an enriched context — use it when you need to link downstream work to the document's origin trace. Plain `Cursor.Decode` works exactly like the underlying driver's `Decode` and ignores `_oteltrace`.
+
+### Span links on FindOne
+
+`SingleResult.Decode` adds a **span link** (not a parent-child relationship) to the `_oteltrace` stored in the fetched document. The FindOne span ends when `Decode`, `Raw`, or `TraceContext` is first called. Call exactly one of these per `SingleResult`.
+
+---
+
 ## Dependencies
 
 - **v2** (`.../otel-mongo/v2`): `go.mongodb.org/mongo-driver/v2`, `go.opentelemetry.io/contrib/instrumentation/.../v2/mongo/otelmongo`, `go.opentelemetry.io/otel` and SDK. See `v2/go.mod`.
