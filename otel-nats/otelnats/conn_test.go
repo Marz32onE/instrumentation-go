@@ -199,8 +199,11 @@ func TestQueueSubscribeRecordsQueueName(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("timeout")
 	}
+	// Allow span to be recorded (handled asynchronously in -race builds).
+	require.Eventually(t, func() bool {
+		return findSpanByKind(sr.Ended(), oteltrace.SpanKindConsumer) != nil
+	}, 2*time.Second, 10*time.Millisecond, "no consumer span")
 	consumerSpan := findSpanByKind(sr.Ended(), oteltrace.SpanKindConsumer)
-	require.NotNil(t, consumerSpan, "no consumer span")
 	assertAttr(t, consumerSpan.Attributes(), "messaging.consumer.group.name", queue)
 }
 
