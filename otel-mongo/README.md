@@ -99,6 +99,28 @@ otel.SetTracerProvider(trace.NewTracerProvider())
 client, err := otelmongo.Connect(opts)
 ```
 
+### 5. Reduce noisy driver spans (e.g. `getMore`)
+
+The MongoDB driver monitor (`contrib otelmongo.NewMonitor`) emits command spans for all operations, including frequent cursor operations like `getMore`.
+
+Use `SkipDBOperationsExporter` to drop selected DB operation spans before export:
+
+```go
+exp, err := otlptracegrpc.New(ctx, otlptracegrpc.WithEndpoint(endpoint), otlptracegrpc.WithInsecure())
+if err != nil { log.Fatal(err) }
+
+// Drop db.operation.name in skip list (case-insensitive).
+exp = otelmongo.SkipDBOperationsExporter(exp, []string{"getMore"})
+
+tp := sdktrace.NewTracerProvider(
+    sdktrace.WithBatcher(exp),
+    sdktrace.WithResource(res),
+)
+otel.SetTracerProvider(tp)
+```
+
+This only filters exported spans; client CRUD behavior and `_oteltrace` propagation are unchanged.
+
 ---
 
 ## API summary
