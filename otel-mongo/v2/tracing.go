@@ -85,16 +85,31 @@ func extractMetadataFromRaw(raw bson.Raw) (*TraceMetadata, bool) {
 	return &meta, true
 }
 
-// ContextFromDocument returns a context enriched with the trace context stored in
-// the document's "_oteltrace" field. Intended for consumers that read documents
-// outside of the Collection CRUD helpers (e.g. change stream fullDocument).
-// Uses the global propagator (otel.GetTextMapPropagator()). When _oteltrace is absent or invalid, the original ctx is returned unchanged.
-func ContextFromDocument(ctx context.Context, raw bson.Raw) context.Context {
+// ContextFromRawDocument returns a context enriched with trace context stored in
+// raw document "_oteltrace". When metadata is absent/invalid, the original ctx
+// is returned unchanged.
+func ContextFromRawDocument(ctx context.Context, raw bson.Raw) context.Context {
 	meta, ok := extractMetadataFromRaw(raw)
 	if !ok {
 		return ctx
 	}
 	return contextFromTraceMetadata(ctx, meta)
+}
+
+// ContextFromDocument extracts span context from fullDoc._oteltrace and injects
+// it into the provided ctx before reading the resulting span context.
+// Returns (zero, false) when metadata is absent/invalid or marshal fails.
+func ContextFromDocument(ctx context.Context, fullDoc any) (trace.SpanContext, bool) {
+	raw, err := bson.Marshal(fullDoc)
+	if err != nil {
+		return trace.SpanContext{}, false
+	}
+	originCtx := ContextFromRawDocument(ctx, raw)
+	sc := trace.SpanContextFromContext(originCtx)
+	if !sc.IsValid() {
+		return trace.SpanContext{}, false
+	}
+	return sc, true
 }
 
 // contextFromTraceMetadata injects the remote span context encoded in meta into ctx using otel.GetTextMapPropagator().

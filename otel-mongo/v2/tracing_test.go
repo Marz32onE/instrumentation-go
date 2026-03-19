@@ -128,14 +128,14 @@ func Test_injectTraceIntoDocument(t *testing.T) {
 	})
 }
 
-func Test_ContextFromDocument(t *testing.T) {
+func Test_ContextFromRawDocument(t *testing.T) {
 	t.Run("raw_without_oteltrace_returns_ctx_unchanged", func(t *testing.T) {
 		doc := bson.D{{Key: "a", Value: 1}}
 		raw, err := bson.Marshal(doc)
 		require.NoError(t, err)
 		ctx := context.Background()
 
-		out := ContextFromDocument(ctx, raw)
+		out := ContextFromRawDocument(ctx, raw)
 		sc := trace.SpanFromContext(out).SpanContext()
 		assert.False(t, sc.IsValid(), "context should not have valid span when document has no _oteltrace")
 	})
@@ -153,11 +153,52 @@ func Test_ContextFromDocument(t *testing.T) {
 		require.NoError(t, err)
 		ctx := context.Background()
 
-		out := ContextFromDocument(ctx, raw)
+		out := ContextFromRawDocument(ctx, raw)
 		sc := trace.SpanFromContext(out).SpanContext()
 		assert.True(t, sc.IsValid())
 		assert.Equal(t, "12345678901234567890123456789012", sc.TraceID().String())
 	})
+}
+
+func Test_ContextFromDocument(t *testing.T) {
+	t.Run("full_document_with_trace_metadata_returns_valid_span_context", func(t *testing.T) {
+		fullDoc := bson.M{
+			"_oteltrace": bson.M{
+				"traceparent": "00-12345678901234567890123456789012-0123456789012345-01",
+			},
+		}
+		sc, ok := ContextFromDocument(context.Background(), fullDoc)
+		require.True(t, ok)
+		assert.True(t, sc.IsValid())
+		assert.Equal(t, "12345678901234567890123456789012", sc.TraceID().String())
+	})
+
+	t.Run("non_marshalable_document_returns_false", func(t *testing.T) {
+		ch := make(chan int)
+		sc, ok := ContextFromDocument(context.Background(), ch)
+		require.False(t, ok)
+		assert.False(t, sc.IsValid())
+	})
+	t.Run("missing_metadata_returns_false", func(t *testing.T) {
+		sc, ok := ContextFromDocument(context.Background(), bson.M{"x": 1})
+		require.False(t, ok)
+		assert.False(t, sc.IsValid())
+	})
+}
+
+func Test_ContextFromRawDocument_Exported(t *testing.T) {
+	traceparent := "00-12345678901234567890123456789012-0123456789012345-01"
+	doc := bson.D{
+		{Key: TraceMetadataKey, Value: bson.D{
+			{Key: "traceparent", Value: traceparent},
+		}},
+	}
+	raw, err := bson.Marshal(doc)
+	require.NoError(t, err)
+	out := ContextFromRawDocument(context.Background(), raw)
+	sc := trace.SpanFromContext(out).SpanContext()
+	assert.True(t, sc.IsValid())
+	assert.Equal(t, "12345678901234567890123456789012", sc.TraceID().String())
 }
 
 func Test_injectTraceIntoUpdate(t *testing.T) {
