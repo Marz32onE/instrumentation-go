@@ -323,5 +323,13 @@ func (c *Collection) Watch(ctx context.Context, pipeline any, opts ...options.Li
 	if err != nil {
 		return nil, err
 	}
-	return &ChangeStream{cs}, nil
+	baseSpanOpts := []trace.SpanStartOption{
+		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(dbAttributes(dbName, collName, "watch", 0, c.serverAddr, c.serverPort)...),
+	}
+	return &ChangeStream{
+		ChangeStream: cs,
+		spanName:     spanName,
+		baseSpanOpts: baseSpanOpts,
+	}, nil
 }

@@ -4,6 +4,9 @@ import (
 	"context"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // InsertOneResult wraps *mongo.InsertOneResult. Use when calling Collection.InsertOne.
@@ -36,6 +39,8 @@ type BulkWriteResult struct {
 // or ContextFromDocument(ctx, event.FullDocument) for manual extraction.
 type ChangeStream struct {
 	*mongo.ChangeStream
+	spanName     string
+	baseSpanOpts []trace.SpanStartOption
 }
 
 // Next advances the change stream to the next change document. See *mongo.ChangeStream.Next.
@@ -54,10 +59,39 @@ func (cs *ChangeStream) Decode(val any) error {
 // context is unchanged. The val parameter can be any user-defined struct — it
 // does not need a fullDocument field; extraction uses the raw BSON internally.
 func (cs *ChangeStream) DecodeWithContext(ctx context.Context, val any) (context.Context, error) {
+	// Extract origin trace context from this change event's fullDocument._oteltrace.
+	// Keep it separate from `ctx` so the created span stays "link-only" (no parent/child).
+	enrichedCtx := ctx
+	var originSpanCtx trace.SpanContext
+
+	fullDoc, err := cs.Current.LookupErr("fullDocument")
+	if err == nil {
+		docRaw, ok := fullDoc.DocumentOK()
+		if ok {
+			if meta, ok := extractMetadataFromRaw(docRaw); ok {
+				enrichedCtx = contextFromTraceMetadata(ctx, meta)
+				originSpanCtx = trace.SpanContextFromContext(enrichedCtx)
+			}
+		}
+	}
+
+	spanOpts := append([]trace.SpanStartOption{}, cs.baseSpanOpts...)
+	if originSpanCtx.IsValid() {
+		spanOpts = append(spanOpts, trace.WithLinks(trace.Link{SpanContext: originSpanCtx}))
+	}
+
+	tracer := otel.GetTracerProvider().Tracer(ScopeName, trace.WithInstrumentationVersion(Version()))
+	_, span := tracer.Start(ctx, cs.spanName, spanOpts...)
+
 	if err := cs.ChangeStream.Decode(val); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		span.End()
 		return ctx, err
 	}
-	return contextFromChangeEvent(ctx, cs.Current), nil
+
+	span.End()
+	return enrichedCtx, nil
 }
 
 // Close closes the change stream. See *mongo.ChangeStream.Close.
