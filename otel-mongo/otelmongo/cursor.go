@@ -6,6 +6,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -26,10 +27,23 @@ func (c *Cursor) DecodeWithContext(ctx context.Context, val any) (context.Contex
 		return ctx, err
 	}
 	raw := c.Current
+	var originSpanCtx trace.SpanContext
 	if meta, ok := extractMetadataFromRaw(raw); ok {
-		ctx = contextFromTraceMetadata(ctx, meta)
+		originCtx := contextFromTraceMetadata(context.Background(), meta)
+		originSpanCtx = trace.SpanContextFromContext(originCtx)
 	}
-	return ctx, nil
+
+	// Detach any existing parent so tracer.Start creates a new TraceID.
+	detachedCtx := trace.ContextWithSpanContext(ctx, trace.SpanContext{})
+	spanOpts := []trace.SpanStartOption{trace.WithSpanKind(trace.SpanKindInternal)}
+	if originSpanCtx.IsValid() {
+		spanOpts = append(spanOpts, trace.WithLinks(trace.Link{SpanContext: originSpanCtx}))
+	}
+
+	tracer := otel.GetTracerProvider().Tracer(ScopeName, trace.WithInstrumentationVersion(Version()))
+	newCtx, span := tracer.Start(detachedCtx, "mongo.cursor.decode", spanOpts...)
+	span.End()
+	return newCtx, nil
 }
 
 // Decode decodes the current document into val.

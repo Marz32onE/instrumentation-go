@@ -43,6 +43,20 @@ type ChangeStream struct {
 	baseSpanOpts []trace.SpanStartOption
 }
 
+// startDecodeSpan creates a new TraceID (by detaching any incoming parent span)
+// and links the decode span to the document's origin trace when originSpanCtx is valid.
+func startDecodeSpan(ctx context.Context, spanName string, baseSpanOpts []trace.SpanStartOption, originSpanCtx trace.SpanContext) (context.Context, trace.Span) {
+	spanOpts := append([]trace.SpanStartOption{}, baseSpanOpts...)
+	if originSpanCtx.IsValid() {
+		spanOpts = append(spanOpts, trace.WithLinks(trace.Link{SpanContext: originSpanCtx}))
+	}
+
+	tracer := otel.GetTracerProvider().Tracer(ScopeName, trace.WithInstrumentationVersion(Version()))
+	detachedCtx := trace.ContextWithSpanContext(ctx, trace.SpanContext{})
+	newCtx, span := tracer.Start(detachedCtx, spanName, spanOpts...)
+	return newCtx, span
+}
+
 // Next advances the change stream to the next change document. See *mongo.ChangeStream.Next.
 func (cs *ChangeStream) Next(ctx context.Context) bool {
 	return cs.ChangeStream.Next(ctx)
@@ -59,7 +73,6 @@ func (cs *ChangeStream) Decode(val any) error {
 // context is unchanged. The val parameter can be any user-defined struct — it
 // does not need a fullDocument field; extraction uses the raw BSON internally.
 func (cs *ChangeStream) DecodeWithContext(ctx context.Context, val any) (context.Context, error) {
-	enrichedCtx := ctx
 	var originSpanCtx trace.SpanContext
 
 	fullDoc, err := cs.Current.LookupErr("fullDocument")
@@ -67,19 +80,12 @@ func (cs *ChangeStream) DecodeWithContext(ctx context.Context, val any) (context
 		docRaw, ok := fullDoc.DocumentOK()
 		if ok {
 			if meta, ok := extractMetadataFromRaw(docRaw); ok {
-				enrichedCtx = contextFromTraceMetadata(ctx, meta)
-				originSpanCtx = trace.SpanContextFromContext(enrichedCtx)
+				originCtx := contextFromTraceMetadata(context.Background(), meta)
+				originSpanCtx = trace.SpanContextFromContext(originCtx)
 			}
 		}
 	}
-
-	spanOpts := append([]trace.SpanStartOption{}, cs.baseSpanOpts...)
-	if originSpanCtx.IsValid() {
-		spanOpts = append(spanOpts, trace.WithLinks(trace.Link{SpanContext: originSpanCtx}))
-	}
-
-	tracer := otel.GetTracerProvider().Tracer(ScopeName, trace.WithInstrumentationVersion(Version()))
-	_, span := tracer.Start(ctx, cs.spanName, spanOpts...)
+	newCtx, span := startDecodeSpan(ctx, cs.spanName, cs.baseSpanOpts, originSpanCtx)
 
 	if err := cs.ChangeStream.Decode(val); err != nil {
 		span.RecordError(err)
@@ -89,7 +95,7 @@ func (cs *ChangeStream) DecodeWithContext(ctx context.Context, val any) (context
 	}
 
 	span.End()
-	return enrichedCtx, nil
+	return newCtx, nil
 }
 
 // Close closes the change stream. See *mongo.ChangeStream.Close.
