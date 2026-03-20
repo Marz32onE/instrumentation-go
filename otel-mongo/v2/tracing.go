@@ -96,6 +96,25 @@ func ContextFromRawDocument(ctx context.Context, raw bson.Raw) context.Context {
 	return contextFromTraceMetadata(ctx, meta)
 }
 
+// contextFromChangeEvent extracts trace context from a raw change stream event
+// by looking up fullDocument._oteltrace. Returns the original ctx when the field
+// is absent (e.g. delete events) or invalid.
+func contextFromChangeEvent(ctx context.Context, raw bson.Raw) context.Context {
+	fullDoc, err := raw.LookupErr("fullDocument")
+	if err != nil {
+		return ctx
+	}
+	docRaw, ok := fullDoc.DocumentOK()
+	if !ok {
+		return ctx
+	}
+	meta, ok := extractMetadataFromRaw(docRaw)
+	if !ok {
+		return ctx
+	}
+	return contextFromTraceMetadata(ctx, meta)
+}
+
 // ContextFromDocument extracts span context from fullDoc._oteltrace and injects
 // it into the provided ctx before reading the resulting span context.
 // Returns (zero, false) when metadata is absent/invalid or marshal fails.

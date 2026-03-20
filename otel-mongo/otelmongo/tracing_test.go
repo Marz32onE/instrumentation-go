@@ -70,6 +70,86 @@ func TestContextFromDocumentV1(t *testing.T) {
 	})
 }
 
+func Test_contextFromChangeEvent(t *testing.T) {
+	traceparent := "00-12345678901234567890123456789012-0123456789012345-01"
+
+	t.Run("insert_event_with_oteltrace_returns_enriched_ctx", func(t *testing.T) {
+		event := bson.D{
+			{Key: "operationType", Value: "insert"},
+			{Key: "fullDocument", Value: bson.D{
+				{Key: "text", Value: "hello"},
+				{Key: TraceMetadataKey, Value: bson.D{
+					{Key: "traceparent", Value: traceparent},
+				}},
+			}},
+		}
+		raw, err := bson.Marshal(event)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		out := contextFromChangeEvent(context.Background(), raw)
+		sc := trace.SpanFromContext(out).SpanContext()
+		if !sc.IsValid() {
+			t.Fatalf("expected valid span context")
+		}
+		if got, want := sc.TraceID().String(), "12345678901234567890123456789012"; got != want {
+			t.Fatalf("trace id mismatch: got %s want %s", got, want)
+		}
+	})
+
+	t.Run("insert_event_without_oteltrace_returns_ctx_unchanged", func(t *testing.T) {
+		event := bson.D{
+			{Key: "operationType", Value: "insert"},
+			{Key: "fullDocument", Value: bson.D{
+				{Key: "text", Value: "hello"},
+			}},
+		}
+		raw, err := bson.Marshal(event)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		out := contextFromChangeEvent(context.Background(), raw)
+		sc := trace.SpanFromContext(out).SpanContext()
+		if sc.IsValid() {
+			t.Fatalf("expected invalid span context")
+		}
+	})
+
+	t.Run("delete_event_no_fullDocument_returns_ctx_unchanged", func(t *testing.T) {
+		event := bson.D{
+			{Key: "operationType", Value: "delete"},
+			{Key: "documentKey", Value: bson.D{
+				{Key: "_id", Value: "abc"},
+			}},
+		}
+		raw, err := bson.Marshal(event)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		out := contextFromChangeEvent(context.Background(), raw)
+		sc := trace.SpanFromContext(out).SpanContext()
+		if sc.IsValid() {
+			t.Fatalf("expected invalid span context")
+		}
+	})
+
+	t.Run("fullDocument_not_a_document_returns_ctx_unchanged", func(t *testing.T) {
+		event := bson.D{
+			{Key: "operationType", Value: "insert"},
+			{Key: "fullDocument", Value: "not-a-document"},
+		}
+		raw, err := bson.Marshal(event)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		out := contextFromChangeEvent(context.Background(), raw)
+		sc := trace.SpanFromContext(out).SpanContext()
+		if sc.IsValid() {
+			t.Fatalf("expected invalid span context")
+		}
+	})
+}
+
 func TestContextFromRawDocumentV1(t *testing.T) {
 	traceparent := "00-12345678901234567890123456789012-0123456789012345-01"
 	doc := bson.D{

@@ -32,7 +32,8 @@ type BulkWriteResult struct {
 }
 
 // ChangeStream wraps *mongo.ChangeStream. Use when calling Collection.Watch.
-// Use ContextFromDocument(ctx, event.FullDocument) to restore trace context from fullDocument.
+// Use DecodeWithContext to automatically restore trace context from fullDocument,
+// or ContextFromDocument(ctx, event.FullDocument) for manual extraction.
 type ChangeStream struct {
 	*mongo.ChangeStream
 }
@@ -45,6 +46,18 @@ func (cs *ChangeStream) Next(ctx context.Context) bool {
 // Decode decodes the current change document into val. See *mongo.ChangeStream.Decode.
 func (cs *ChangeStream) Decode(val any) error {
 	return cs.ChangeStream.Decode(val)
+}
+
+// DecodeWithContext decodes the current change document into val and returns a
+// context enriched with trace context extracted from fullDocument's "_oteltrace"
+// field. When the field is absent (e.g. delete events) or invalid, the returned
+// context is unchanged. The val parameter can be any user-defined struct — it
+// does not need a fullDocument field; extraction uses the raw BSON internally.
+func (cs *ChangeStream) DecodeWithContext(ctx context.Context, val any) (context.Context, error) {
+	if err := cs.ChangeStream.Decode(val); err != nil {
+		return ctx, err
+	}
+	return contextFromChangeEvent(ctx, cs.Current), nil
 }
 
 // Close closes the change stream. See *mongo.ChangeStream.Close.
