@@ -50,8 +50,8 @@ type Conn struct {
 	tracer        trace.Tracer
 	propagator    propagation.TextMapPropagator
 	serverAttrs   []attribute.KeyValue
-	deliverTracer trace.Tracer              // NATS deliver span tracer (nil when disabled)
-	natsTP        *sdktrace.TracerProvider  // independent TracerProvider for NATS service (nil when disabled)
+	deliverTracer trace.Tracer             // NATS deliver span tracer (nil when disabled)
+	natsTP        *sdktrace.TracerProvider // independent TracerProvider for NATS service (nil when disabled)
 }
 
 // Option configures Conn. Per OTel contrib: accept TracerProvider and Propagators, not Tracer.
@@ -207,10 +207,11 @@ func (c *Conn) StartDeliverSpan(ctx context.Context, subject string) context.Con
 	if c.deliverTracer == nil {
 		return ctx
 	}
-	attrs := []attribute.KeyValue{
+	attrs := make([]attribute.KeyValue, 0, 2+len(c.serverAttrs))
+	attrs = append(attrs,
 		semconv.MessagingSystemKey.String(messagingSystem),
 		semconv.MessagingDestinationNameKey.String(subject),
-	}
+	)
 	attrs = append(attrs, c.serverAttrs...)
 	deliverCtx, span := c.deliverTracer.Start(ctx, subject+" deliver",
 		trace.WithSpanKind(trace.SpanKindConsumer),

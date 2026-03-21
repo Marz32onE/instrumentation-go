@@ -28,7 +28,7 @@ type Client struct {
 	*mongo.Client
 	serverAddr    string
 	serverPort    int
-	deliverTracer trace.Tracer            // MongoDB deliver span tracer (nil when disabled)
+	deliverTracer trace.Tracer             // MongoDB deliver span tracer (nil when disabled)
 	mongoTP       *sdktrace.TracerProvider // independent TracerProvider (nil when disabled)
 }
 

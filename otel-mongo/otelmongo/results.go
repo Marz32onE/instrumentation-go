@@ -47,7 +47,6 @@ type ChangeStream struct {
 	deliverAttrs    []attribute.KeyValue // same attrs as producer-side deliver span
 }
 
-
 // buildConsumerCtx creates a detached context with a consumer span linked to originSpanCtx.
 // When deliverTracer is non-nil and originSpanCtx is valid, a consumer-side deliver span
 // (SpanKindProducer) is created first and the consumer span becomes its child.
