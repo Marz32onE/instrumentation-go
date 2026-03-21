@@ -146,7 +146,10 @@ func injectTraceIntoUpdate(ctx context.Context, update any) (any, error) {
 
 	if len(doc) > 0 && len(doc[0].Key) > 0 && doc[0].Key[0] == '$' {
 		// Operator update: inject into $set.
-		doc = upsertSetField(doc, *meta)
+		doc, err = upsertSetField(doc, *meta)
+		if err != nil {
+			return update, fmt.Errorf("otelmongo: upsert $set: %w", err)
+		}
 		return doc, nil
 	}
 
@@ -157,7 +160,7 @@ func injectTraceIntoUpdate(ctx context.Context, update any) (any, error) {
 
 // upsertSetField finds or creates the "$set" element in an operator update document
 // and appends the trace metadata key to it.
-func upsertSetField(doc bson.D, meta TraceMetadata) bson.D {
+func upsertSetField(doc bson.D, meta TraceMetadata) (bson.D, error) {
 	for i, elem := range doc {
 		if elem.Key == "$set" {
 			var setDoc bson.D
@@ -167,16 +170,18 @@ func upsertSetField(doc bson.D, meta TraceMetadata) bson.D {
 			default:
 				raw, err := bson.Marshal(v)
 				if err != nil {
-					break
+					return doc, fmt.Errorf("marshal $set value: %w", err)
 				}
-				_ = bson.Unmarshal(raw, &setDoc)
+				if err := bson.Unmarshal(raw, &setDoc); err != nil {
+					return doc, fmt.Errorf("unmarshal $set value: %w", err)
+				}
 			}
 			setDoc = append(setDoc, bson.E{Key: TraceMetadataKey, Value: meta})
 			doc[i].Value = setDoc
-			return doc
+			return doc, nil
 		}
 	}
 	// No existing $set — create one.
 	doc = append(doc, bson.E{Key: "$set", Value: bson.D{{Key: TraceMetadataKey, Value: meta}}})
-	return doc
+	return doc, nil
 }

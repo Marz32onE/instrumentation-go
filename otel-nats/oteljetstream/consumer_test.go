@@ -337,6 +337,137 @@ func TestConsumerInfo(t *testing.T) {
 	require.Equal(t, "info-cons", info.Name)
 }
 
+func TestJetStreamDeliverSpanConsume(t *testing.T) {
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4317")
+	url := startJetStreamServer(t)
+	sr := tracetest.NewSpanRecorder()
+	tp := trace.NewTracerProvider(trace.WithSpanProcessor(sr))
+	prop := propagation.NewCompositeTextMapPropagator(propagation.TraceContext{})
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(prop)
+
+	conn, err := otelnats.Connect(url, nil)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	js, err := oteljetstream.New(conn)
+	require.NoError(t, err)
+	ctx := context.Background()
+	_, err = js.CreateOrUpdateStream(ctx, oteljetstream.StreamConfig{
+		Name:     "DELIVERCONSUME",
+		Subjects: []string{"delcons.>"},
+	})
+	require.NoError(t, err)
+	stream, err := js.Stream(ctx, "DELIVERCONSUME")
+	require.NoError(t, err)
+	cons, err := stream.CreateOrUpdateConsumer(ctx, oteljetstream.ConsumerConfig{
+		Durable:       "del-cons",
+		FilterSubject: "delcons.msg",
+		AckPolicy:     oteljetstream.AckExplicitPolicy,
+	})
+	require.NoError(t, err)
+
+	done := make(chan struct{}, 1)
+	cc, err := cons.Consume(func(m oteljetstream.MsgWithContext) {
+		done <- struct{}{}
+		_ = m.Ack()
+	})
+	require.NoError(t, err)
+	defer cc.Stop()
+
+	tracer := tp.Tracer("pub")
+	pubCtx, pubSpan := tracer.Start(ctx, "parent")
+	_, err = js.Publish(pubCtx, "delcons.msg", []byte("hi"))
+	require.NoError(t, err)
+	pubSpan.End()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout")
+	}
+
+	require.Eventually(t, func() bool {
+		return findSpanByKind(sr.Ended(), oteltrace.SpanKindConsumer) != nil
+	}, 2*time.Second, 10*time.Millisecond)
+
+	spans := sr.Ended()
+	producer := findSpanByKind(spans, oteltrace.SpanKindProducer)
+	consumer := findSpanByKind(spans, oteltrace.SpanKindConsumer)
+	require.NotNil(t, producer)
+	require.NotNil(t, consumer)
+	require.Len(t, consumer.Links(), 1)
+	linkSpanID := consumer.Links()[0].SpanContext.SpanID()
+	assert.NotEqual(t, producer.SpanContext().SpanID(), linkSpanID,
+		"consumer link should point to deliver span, not producer")
+	assert.Equal(t, producer.SpanContext().TraceID(), consumer.Links()[0].SpanContext.TraceID(),
+		"deliver span should share traceID with producer")
+}
+
+func TestJetStreamDeliverSpanFetch(t *testing.T) {
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4317")
+	url := startJetStreamServer(t)
+	sr := tracetest.NewSpanRecorder()
+	tp := trace.NewTracerProvider(trace.WithSpanProcessor(sr))
+	prop := propagation.NewCompositeTextMapPropagator(propagation.TraceContext{})
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(prop)
+
+	conn, err := otelnats.Connect(url, nil)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	js, err := oteljetstream.New(conn)
+	require.NoError(t, err)
+	ctx := context.Background()
+	_, err = js.CreateOrUpdateStream(ctx, oteljetstream.StreamConfig{
+		Name:     "DELIVERFETCH",
+		Subjects: []string{"delfetch.>"},
+	})
+	require.NoError(t, err)
+	stream, err := js.Stream(ctx, "DELIVERFETCH")
+	require.NoError(t, err)
+	cons, err := stream.CreateOrUpdateConsumer(ctx, oteljetstream.ConsumerConfig{
+		Durable:       "del-fetch",
+		FilterSubject: "delfetch.msg",
+		AckPolicy:     oteljetstream.AckExplicitPolicy,
+	})
+	require.NoError(t, err)
+
+	tracer := tp.Tracer("pub")
+	pubCtx, pubSpan := tracer.Start(ctx, "parent")
+	_, err = js.Publish(pubCtx, "delfetch.msg", []byte("hello"))
+	require.NoError(t, err)
+	pubSpan.End()
+
+	var received int
+	for attempt := 0; attempt < 30; attempt++ {
+		batch, ferr := cons.Fetch(5, jetstream.FetchMaxWait(300*time.Millisecond))
+		require.NoError(t, ferr)
+		for m := range batch.MessagesWithContext() {
+			received++
+			_ = m.Ack()
+		}
+		if received == 1 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	require.Equal(t, 1, received)
+
+	spans := sr.Ended()
+	producer := findSpanByKind(spans, oteltrace.SpanKindProducer)
+	consumer := findSpanByKind(spans, oteltrace.SpanKindConsumer)
+	require.NotNil(t, producer)
+	require.NotNil(t, consumer)
+	require.Len(t, consumer.Links(), 1)
+	linkSpanID := consumer.Links()[0].SpanContext.SpanID()
+	assert.NotEqual(t, producer.SpanContext().SpanID(), linkSpanID,
+		"consumer link should point to deliver span, not producer")
+	assert.Equal(t, producer.SpanContext().TraceID(), consumer.Links()[0].SpanContext.TraceID(),
+		"deliver span should share traceID with producer")
+}
+
 func TestConsumerCachedInfo(t *testing.T) {
 	url := startJetStreamServer(t)
 	otel.SetTracerProvider(trace.NewTracerProvider())

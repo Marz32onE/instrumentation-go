@@ -15,7 +15,7 @@ import (
 
 const messagingSystem = "nats"
 
-func publishAttrs(msg *nats.Msg) []attribute.KeyValue {
+func publishAttrs(msg *nats.Msg, serverAttrs []attribute.KeyValue) []attribute.KeyValue {
 	attrs := []attribute.KeyValue{
 		semconv.MessagingSystemKey.String(messagingSystem),
 		semconv.MessagingDestinationNameKey.String(msg.Subject),
@@ -25,6 +25,7 @@ func publishAttrs(msg *nats.Msg) []attribute.KeyValue {
 	if len(msg.Data) > 0 {
 		attrs = append(attrs, semconv.MessagingMessageBodySize(len(msg.Data)))
 	}
+	attrs = append(attrs, serverAttrs...)
 	return attrs
 }
 
@@ -100,10 +101,14 @@ func (j *jsImpl) PublishMsg(ctx context.Context, msg *nats.Msg, opts ...jetstrea
 	}
 	ctx, span := tracer.Start(ctx, "send "+msg.Subject,
 		trace.WithSpanKind(trace.SpanKindProducer),
-		trace.WithAttributes(publishAttrs(msg)...),
+		trace.WithAttributes(publishAttrs(msg, j.conn.ServerAttrs())...),
 	)
 	defer span.End()
-	prop.Inject(ctx, &otelnats.HeaderCarrier{H: msg.Header})
+	injectCtx := ctx
+	if j.conn.DeliverSpanEnabled() {
+		injectCtx = j.conn.StartDeliverSpan(ctx, msg.Subject)
+	}
+	prop.Inject(injectCtx, &otelnats.HeaderCarrier{H: msg.Header})
 	ack, err := j.js.PublishMsg(ctx, msg, opts...)
 	if err != nil {
 		span.RecordError(err)

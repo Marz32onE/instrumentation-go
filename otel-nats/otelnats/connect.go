@@ -29,12 +29,15 @@ func filterNilOptions(natsOpts []nats.Option) []nats.Option {
 	return out
 }
 
-// ConnectTLS establishes a TLS connection with tracing.
+// ConnectTLS establishes a TLS-secured NATS connection with tracing.
+// certFile and keyFile are paths to PEM-encoded client certificate and private key.
+// caFile is the path to a PEM-encoded CA certificate for server verification (empty string skips CA override).
 func ConnectTLS(url, certFile, keyFile, caFile string, natsOpts ...nats.Option) (*Conn, error) {
 	return ConnectTLSWithOptions(url, certFile, keyFile, caFile, filterNilOptions(natsOpts), nil)
 }
 
-// ConnectTLSWithOptions is ConnectTLS with optional trace options.
+// ConnectTLSWithOptions is ConnectTLS with additional trace options (WithTracerProvider, WithPropagators).
+// natsOpts are passed to the underlying nats.Connect; traceOpts configure the OTel instrumentation.
 func ConnectTLSWithOptions(url, certFile, keyFile, caFile string, natsOpts []nats.Option, traceOpts ...Option) (*Conn, error) {
 	opts := make([]nats.Option, 0, len(natsOpts)+2)
 	opts = append(opts, natsOpts...)
@@ -49,12 +52,15 @@ func ConnectTLSWithOptions(url, certFile, keyFile, caFile string, natsOpts []nat
 	return newConn(nc, traceOpts...), nil
 }
 
-// ConnectWithCredentials connects using a credentials file, with tracing.
+// ConnectWithCredentials connects to NATS using a credentials file (JWT + NKey), with tracing.
+// credFile is the path to a NATS credentials file (.creds).
 func ConnectWithCredentials(url, credFile string, natsOpts ...nats.Option) (*Conn, error) {
 	return ConnectWithCredentialsWithOptions(url, credFile, filterNilOptions(natsOpts), nil)
 }
 
-// ConnectWithCredentialsWithOptions is ConnectWithCredentials with optional trace options.
+// ConnectWithCredentialsWithOptions is ConnectWithCredentials with additional trace options
+// (WithTracerProvider, WithPropagators). natsOpts are passed to the underlying nats.Connect;
+// traceOpts configure the OTel instrumentation.
 func ConnectWithCredentialsWithOptions(url, credFile string, natsOpts []nats.Option, traceOpts ...Option) (*Conn, error) {
 	opts := make([]nats.Option, 0, len(natsOpts)+1)
 	opts = append(opts, natsOpts...)

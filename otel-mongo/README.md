@@ -134,6 +134,45 @@ This only filters exported spans; client CRUD behavior and `_oteltrace` propagat
 
 ---
 
+## Deliver Spans (Service Graph)
+
+When `OTEL_EXPORTER_OTLP_ENDPOINT` is set, otelmongo creates synthetic "deliver" spans representing MongoDB as a broker node in Grafana service graph. Use `NewClient` (not `Connect`) to enable this — `NewClient` parses the URI for `server.address` and initialises the deliver TracerProvider.
+
+### Producer-side (write path)
+
+```
+InsertOne (CLIENT, api)
+  └── db.coll deliver (CONSUMER, mongodb)  ← injected into _oteltrace
+```
+
+### Consumer-side (change stream path)
+
+```
+db.coll deliver (PRODUCER, mongodb)  ← links to producer deliver
+  └── watch coll (CONSUMER, dbwatcher) ← child of deliver
+```
+
+### Resulting service graph
+
+```
+api ──► mongodb ──► dbwatcher
+```
+
+---
+
+## v1 vs v2 API Differences
+
+| Difference | v1 (`otelmongo`) | v2 (`.../v2`) |
+|------------|------------------|---------------|
+| `Connect` signature | `Connect(ctx, opts...)` | `Connect(opts...)` |
+| `NewClient` signature | `NewClient(ctx, uri, traceOpts...)` | `NewClient(uri, traceOpts...)` |
+| `Distinct` return | `([]interface{}, error)` | `*mongo.DistinctResult` |
+| `StartSession` return | `mongo.Session, error` | `*mongo.Session, error` |
+| `Cursor.DecodeWithContext` | Creates INTERNAL span + new TraceID | Pure context enrichment (no extra span) |
+| `Connect` server address | Not parsed (no `server.address` attribute) | Auto-parses URI |
+
+---
+
 ## Important notes
 
 ### `_oteltrace` field in documents

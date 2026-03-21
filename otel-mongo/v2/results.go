@@ -5,6 +5,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -39,8 +40,11 @@ type BulkWriteResult struct {
 // or ContextFromDocument(ctx, event.FullDocument) for manual extraction.
 type ChangeStream struct {
 	*mongo.ChangeStream
-	spanName     string
-	baseSpanOpts []trace.SpanStartOption
+	spanName        string
+	baseSpanOpts    []trace.SpanStartOption
+	deliverTracer   trace.Tracer         // nil when disabled
+	deliverSpanName string               // e.g. "messaging.messages deliver"
+	deliverAttrs    []attribute.KeyValue // same attrs as producer-side deliver span
 }
 
 // Next advances the change stream to the next change document. See *mongo.ChangeStream.Next.
@@ -74,15 +78,31 @@ func (cs *ChangeStream) DecodeWithContext(ctx context.Context, val any) (context
 		}
 	}
 
+	// Detach any incoming parent span so consumer spans get a new TraceID.
+	detachedCtx := trace.ContextWithSpanContext(ctx, trace.SpanContext{})
+	consumerCtx := detachedCtx
+
+	// Consumer-side deliver span: SpanKindProducer (broker delivering to consumer), links to producer deliver A.
+	// Only created when deliverTracer is set and there is a valid origin span context.
+	if cs.deliverTracer != nil && originSpanCtx.IsValid() {
+		_, deliverSpan := cs.deliverTracer.Start(detachedCtx,
+			cs.deliverSpanName,
+			trace.WithSpanKind(trace.SpanKindProducer),
+			trace.WithAttributes(cs.deliverAttrs...),
+			trace.WithLinks(trace.Link{SpanContext: originSpanCtx}),
+		)
+		deliverSpan.End()
+		// Consumer span becomes child of deliver span (shared new TraceID).
+		consumerCtx = trace.ContextWithRemoteSpanContext(detachedCtx, deliverSpan.SpanContext())
+	}
+
 	spanOpts := append([]trace.SpanStartOption{}, cs.baseSpanOpts...)
 	if originSpanCtx.IsValid() {
 		spanOpts = append(spanOpts, trace.WithLinks(trace.Link{SpanContext: originSpanCtx}))
 	}
 
 	tracer := otel.GetTracerProvider().Tracer(ScopeName, trace.WithInstrumentationVersion(Version()))
-	// Detach any existing parent span context so tracer.Start creates a new TraceID.
-	detachedCtx := trace.ContextWithSpanContext(ctx, trace.SpanContext{})
-	newCtx, span := tracer.Start(detachedCtx, cs.spanName, spanOpts...)
+	newCtx, span := tracer.Start(consumerCtx, cs.spanName, spanOpts...)
 
 	if err := cs.ChangeStream.Decode(val); err != nil {
 		span.RecordError(err)

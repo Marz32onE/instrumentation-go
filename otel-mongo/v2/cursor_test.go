@@ -44,7 +44,7 @@ func TestCursorDecodeWithContext_ExtractsTrace(t *testing.T) {
 
 	require.True(t, cursor.Next(context.Background()))
 
-	c := &Cursor{Cursor: cursor, tracer: tracer, parentCtx: ctx}
+	c := &Cursor{Cursor: cursor, parentCtx: ctx}
 
 	var result bson.D
 	enriched, err := c.DecodeWithContext(context.Background(), &result)
@@ -56,11 +56,6 @@ func TestCursorDecodeWithContext_ExtractsTrace(t *testing.T) {
 }
 
 func TestCursorDecodeWithContext_NoTrace(t *testing.T) {
-	sr := tracetest.NewSpanRecorder()
-	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
-	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
-	tracer := tp.Tracer("test")
-
 	// Document without trace metadata.
 	raw, err := bson.Marshal(bson.D{{Key: "x", Value: 1}})
 	require.NoError(t, err)
@@ -72,7 +67,7 @@ func TestCursorDecodeWithContext_NoTrace(t *testing.T) {
 	require.True(t, cursor.Next(context.Background()))
 
 	baseCtx := context.Background()
-	c := &Cursor{Cursor: cursor, tracer: tracer, parentCtx: baseCtx}
+	c := &Cursor{Cursor: cursor, parentCtx: baseCtx}
 
 	var result bson.D
 	enriched, err := c.DecodeWithContext(baseCtx, &result)
@@ -156,11 +151,6 @@ func TestSingleResultTraceContext(t *testing.T) {
 }
 
 func TestCursorDecode(t *testing.T) {
-	sr := tracetest.NewSpanRecorder()
-	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
-	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
-	tracer := tp.Tracer("test")
-
 	raw, err := bson.Marshal(bson.D{{Key: "field", Value: "v"}})
 	require.NoError(t, err)
 
@@ -170,7 +160,7 @@ func TestCursorDecode(t *testing.T) {
 
 	require.True(t, cursor.Next(context.Background()))
 
-	c := &Cursor{Cursor: cursor, tracer: tracer, parentCtx: context.Background()}
+	c := &Cursor{Cursor: cursor, parentCtx: context.Background()}
 
 	var result bson.D
 	err = c.Decode(&result)

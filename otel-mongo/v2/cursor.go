@@ -12,7 +12,6 @@ import (
 // Cursor wraps *mongo.Cursor; trace extract uses otel.GetTextMapPropagator().
 type Cursor struct {
 	*mongo.Cursor
-	tracer    trace.Tracer
 	parentCtx context.Context
 }
 

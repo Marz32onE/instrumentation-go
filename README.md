@@ -6,10 +6,10 @@ OpenTelemetry instrumentation packages for NATS, MongoDB, and WebSocket, aligned
 
 | Package | Import path | Version | Description |
 |---------|-------------|---------|-------------|
-| **otel-mongo** (v1) | `github.com/Marz32onE/instrumentation-go/otel-mongo/otelmongo` | 0.1.1 | MongoDB driver v1 wrapper; `_oteltrace` in documents, ContextFromDocument, BulkWrite. |
-| **otel-mongo/v2** | `github.com/Marz32onE/instrumentation-go/otel-mongo/v2` | 0.1.1 | MongoDB driver v2 wrapper; same API as v1. |
-| **otel-nats** | `github.com/Marz32onE/instrumentation-go/otel-nats/otelnats` | 0.1.1 | Core NATS connection, Publish, Subscribe (W3C trace in headers). |
-| **otel-nats** | `github.com/Marz32onE/instrumentation-go/otel-nats/oteljetstream` | 0.1.1 | JetStream streams, consumers, Publish, Consume, Messages, Fetch. |
+| **otel-mongo** (v1) | `github.com/Marz32onE/instrumentation-go/otel-mongo/otelmongo` | 0.1.1 | MongoDB driver v1 wrapper; `_oteltrace` in documents, ContextFromDocument, BulkWrite; deliver spans for service graph. |
+| **otel-mongo/v2** | `github.com/Marz32onE/instrumentation-go/otel-mongo/v2` | 0.1.1 | MongoDB driver v2 wrapper; same API as v1; deliver spans for service graph. |
+| **otel-nats** | `github.com/Marz32onE/instrumentation-go/otel-nats/otelnats` | 0.1.1 | Core NATS connection, Publish, Subscribe (W3C trace in headers); deliver spans for service graph. |
+| **otel-nats** | `github.com/Marz32onE/instrumentation-go/otel-nats/oteljetstream` | 0.1.1 | JetStream streams, consumers, Publish, Consume, Messages, Fetch; deliver spans for service graph. |
 | **otel-websocket** | `github.com/Marz32onE/instrumentation-go/otel-websocket` | 0.1.1 | WebSocket trace-context propagation (JSON envelope in message body). |
 
 ## Install

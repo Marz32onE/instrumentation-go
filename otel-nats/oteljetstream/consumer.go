@@ -83,7 +83,7 @@ func (c *consumerImpl) Consume(handler MsgHandler, opts ...jetstream.PullConsume
 		}
 		msgCtx := prop.Extract(context.Background(), &otelnats.HeaderCarrier{H: h})
 		spanName := "process " + msg.Subject()
-		attrs := append(receiveAttrs(msg, "process"), attribute.String(attrConsumerName, c.consumerName))
+		attrs := append(receiveAttrs(msg, "process", c.conn.ServerAttrs()), attribute.String(attrConsumerName, c.consumerName))
 		startOpts := []trace.SpanStartOption{
 			trace.WithSpanKind(trace.SpanKindConsumer),
 			trace.WithAttributes(attrs...),
@@ -160,7 +160,8 @@ func (c *consumerImpl) CachedInfo() *ConsumerInfo {
 }
 
 // receiveAttrs builds consumer span attributes. opType is "process" (push) or "receive" (pull).
-func receiveAttrs(msg jetstream.Msg, opType string) []attribute.KeyValue {
+// Note: otelnats/conn.go has a parallel receiveAttrs for *nats.Msg — keep both in sync.
+func receiveAttrs(msg jetstream.Msg, opType string, serverAttrs []attribute.KeyValue) []attribute.KeyValue {
 	attrs := []attribute.KeyValue{
 		semconv.MessagingSystemKey.String(messagingSystem),
 		semconv.MessagingDestinationNameKey.String(msg.Subject()),
@@ -170,6 +171,7 @@ func receiveAttrs(msg jetstream.Msg, opType string) []attribute.KeyValue {
 	if d := msg.Data(); len(d) > 0 {
 		attrs = append(attrs, semconv.MessagingMessageBodySize(len(d)))
 	}
+	attrs = append(attrs, serverAttrs...)
 	return attrs
 }
 
@@ -218,7 +220,7 @@ func wrapMessageBatch(conn *otelnats.Conn, consumerName string, raw jetstream.Me
 				h = make(nats.Header)
 			}
 			msgCtx := prop.Extract(context.Background(), &otelnats.HeaderCarrier{H: h})
-			attrs := append(receiveAttrs(msg, "receive"), attribute.String(attrConsumerName, consumerName))
+			attrs := append(receiveAttrs(msg, "receive", conn.ServerAttrs()), attribute.String(attrConsumerName, consumerName))
 			opts := []trace.SpanStartOption{
 				trace.WithSpanKind(trace.SpanKindConsumer),
 				trace.WithAttributes(attrs...),
@@ -270,7 +272,7 @@ func (m *messagesContextImpl) Next(opts ...jetstream.NextOpt) (context.Context, 
 	tracer, prop := m.conn.TraceContext()
 	msgCtx := prop.Extract(context.Background(), &otelnats.HeaderCarrier{H: h})
 	spanName := "receive " + msg.Subject()
-	attrs := append(receiveAttrs(msg, "receive"), attribute.String(attrConsumerName, m.consumerName))
+	attrs := append(receiveAttrs(msg, "receive", m.conn.ServerAttrs()), attribute.String(attrConsumerName, m.consumerName))
 	startOpts := []trace.SpanStartOption{
 		trace.WithSpanKind(trace.SpanKindConsumer),
 		trace.WithAttributes(attrs...),

@@ -5,6 +5,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -39,22 +40,40 @@ type BulkWriteResult struct {
 // or ContextFromDocument(ctx, event.FullDocument) for manual extraction.
 type ChangeStream struct {
 	*mongo.ChangeStream
-	spanName     string
-	baseSpanOpts []trace.SpanStartOption
+	spanName        string
+	baseSpanOpts    []trace.SpanStartOption
+	deliverTracer   trace.Tracer         // nil when disabled
+	deliverSpanName string               // e.g. "messaging.messages deliver"
+	deliverAttrs    []attribute.KeyValue // same attrs as producer-side deliver span
 }
 
-// startDecodeSpan creates a new TraceID (by detaching any incoming parent span)
-// and links the decode span to the document's origin trace when originSpanCtx is valid.
-func startDecodeSpan(ctx context.Context, spanName string, baseSpanOpts []trace.SpanStartOption, originSpanCtx trace.SpanContext) (context.Context, trace.Span) {
+
+// buildConsumerCtx creates a detached context with a consumer span linked to originSpanCtx.
+// When deliverTracer is non-nil and originSpanCtx is valid, a consumer-side deliver span
+// (SpanKindProducer) is created first and the consumer span becomes its child.
+// This helper is extracted for testability.
+func buildConsumerCtx(ctx context.Context, deliverTracer trace.Tracer, deliverSpanName string, deliverAttrs []attribute.KeyValue, spanName string, baseSpanOpts []trace.SpanStartOption, originSpanCtx trace.SpanContext) (context.Context, trace.Span) {
+	detachedCtx := trace.ContextWithSpanContext(ctx, trace.SpanContext{})
+	consumerCtx := detachedCtx
+
+	if deliverTracer != nil && originSpanCtx.IsValid() {
+		_, deliverSpan := deliverTracer.Start(detachedCtx,
+			deliverSpanName,
+			trace.WithSpanKind(trace.SpanKindProducer),
+			trace.WithAttributes(deliverAttrs...),
+			trace.WithLinks(trace.Link{SpanContext: originSpanCtx}),
+		)
+		deliverSpan.End()
+		consumerCtx = trace.ContextWithRemoteSpanContext(detachedCtx, deliverSpan.SpanContext())
+	}
+
 	spanOpts := append([]trace.SpanStartOption{}, baseSpanOpts...)
 	if originSpanCtx.IsValid() {
 		spanOpts = append(spanOpts, trace.WithLinks(trace.Link{SpanContext: originSpanCtx}))
 	}
 
 	tracer := otel.GetTracerProvider().Tracer(ScopeName, trace.WithInstrumentationVersion(Version()))
-	detachedCtx := trace.ContextWithSpanContext(ctx, trace.SpanContext{})
-	newCtx, span := tracer.Start(detachedCtx, spanName, spanOpts...)
-	return newCtx, span
+	return tracer.Start(consumerCtx, spanName, spanOpts...)
 }
 
 // Next advances the change stream to the next change document. See *mongo.ChangeStream.Next.
@@ -85,7 +104,8 @@ func (cs *ChangeStream) DecodeWithContext(ctx context.Context, val any) (context
 			}
 		}
 	}
-	newCtx, span := startDecodeSpan(ctx, cs.spanName, cs.baseSpanOpts, originSpanCtx)
+
+	newCtx, span := buildConsumerCtx(ctx, cs.deliverTracer, cs.deliverSpanName, cs.deliverAttrs, cs.spanName, cs.baseSpanOpts, originSpanCtx)
 
 	if err := cs.ChangeStream.Decode(val); err != nil {
 		span.RecordError(err)

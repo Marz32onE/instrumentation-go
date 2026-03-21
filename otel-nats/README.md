@@ -118,6 +118,29 @@ conn, err := otelnats.Connect(url, nil)
 
 ---
 
+## Deliver Spans (Service Graph)
+
+When `OTEL_EXPORTER_OTLP_ENDPOINT` is set, otelnats/oteljetstream creates synthetic "deliver" spans so NATS appears as a broker in Grafana service graph.
+
+### Span hierarchy
+
+```
+send subject (PRODUCER, api)
+  └── subject deliver (CONSUMER, nats://addr)  ← injected into headers
+
+process subject (CONSUMER, worker)  ← links to deliver span
+```
+
+### Resulting service graph
+
+```
+api ──► nats ──► worker
+```
+
+Deliver spans use an independent TracerProvider with `service.name = "nats://{connected_addr}"`. This is initialised automatically during `Connect`; no extra configuration is needed beyond setting the OTLP endpoint.
+
+---
+
 ## Important: MessageBatch channel exclusivity
 
 `MessageBatch` (returned by `Fetch`, `FetchBytes`, `FetchNoWait`) exposes two channels:
