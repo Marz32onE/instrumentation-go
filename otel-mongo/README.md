@@ -23,12 +23,12 @@ Both packages expose the same API surface (Client, Collection, Cursor, ContextFr
 otel-mongo/
 ├── otelmongo/           # MongoDB driver v1 wrapper (root module)
 │   ├── version.go, client.go, database.go, collection.go, cursor.go
-│   ├── tracing.go, semconv.go, bulkwrite.go, results.go
+│   ├── tracing.go, semconv.go, bulkwrite.go, results.go, filter_exporter.go
 │   └── ...
 ├── v2/                  # MongoDB driver v2 wrapper (separate module, import .../v2)
 │   ├── go.mod           # module .../otel-mongo/v2, requires go.mongodb.org/mongo-driver/v2
 │   ├── version.go, client.go, database.go, collection.go, cursor.go
-│   ├── tracing.go, semconv.go, bulkwrite.go, results.go
+│   ├── tracing.go, semconv.go, bulkwrite.go, results.go, filter_exporter.go
 │   └── *_test.go
 ├── example/             # TracerProvider + global + otelmongo (uses v2)
 └── README.md
@@ -131,6 +131,7 @@ This only filters exported spans; client CRUD behavior and `_oteltrace` propagat
 | **NewClient** | Same; accepts optional **WithTracerProvider**, **WithPropagators**. |
 | **ContextFromDocument** | Restores trace context from document’s `_oteltrace` (e.g. for change streams). |
 | **ScopeName / Version()** | Used when creating Tracer (OTel contrib guideline). |
+| **SkipDBOperationsExporter** | Wraps a `SpanExporter`; drops spans whose `db.operation.name` is in the skip list (export-only). |
 
 ---
 

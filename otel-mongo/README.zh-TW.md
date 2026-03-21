@@ -96,3 +96,4 @@ otel.SetTracerProvider(tp)
 | **NewClient** | 可選 **WithTracerProvider**、**WithPropagators**。 |
 | **ContextFromDocument** | 從文件的 `_oteltrace` 還原 trace context。 |
 | **ScopeName / Version()** | 建立 Tracer 時使用（OTel contrib 規範）。 |
+| **SkipDBOperationsExporter** | 包裝 `SpanExporter`，依 `db.operation.name` 略過匯出（僅影響匯出）。 |

@@ -199,9 +199,9 @@ func useHTTPEndpoint(endpoint string) bool {
 	return false
 }
 
-// StartDeliverSpan creates a synthetic INTERNAL span representing NATS broker delivery.
-// The returned context contains the deliver span's trace context, suitable for injecting
-// into message headers so consumers link to the deliver span.
+// StartDeliverSpan creates a synthetic messaging span for NATS broker delivery using
+// SpanKindConsumer (not INTERNAL). The returned context contains the deliver span's trace context,
+// suitable for injecting into message headers so consumers link to the deliver span.
 // If deliver spans are disabled (no OTEL_EXPORTER_OTLP_ENDPOINT), returns ctx unchanged.
 func (c *Conn) StartDeliverSpan(ctx context.Context, subject string) context.Context {
 	if c.deliverTracer == nil {
