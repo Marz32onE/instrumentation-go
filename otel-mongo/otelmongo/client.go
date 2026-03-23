@@ -90,24 +90,33 @@ func ConnectWithOptions(ctx context.Context, traceOpts []ClientOption, opts ...*
 	if cfg.Propagators != nil {
 		otel.SetTextMapPropagator(cfg.Propagators)
 	}
-	mc, err := mongo.Connect(ctx, options.MergeClientOptions(opts...))
+	merged := options.MergeClientOptions(opts...)
+	mc, err := mongo.Connect(ctx, merged)
 	if err != nil {
 		return nil, err
 	}
-	// v1 ClientOptions does not expose GetURI(); server attributes are left empty when using Connect.
-	return &Client{Client: mc}, nil
+	addr, port := parseServerFromClientOptions(merged)
+	mongoTP, deliverTracer := initMongoProvider(addr, port)
+	return &Client{
+		Client:        mc,
+		serverAddr:    addr,
+		serverPort:    port,
+		mongoTP:       mongoTP,
+		deliverTracer: deliverTracer,
+	}, nil
+}
+
+func parseServerFromClientOptions(opts *options.ClientOptions) (addr string, port int) {
+	if opts == nil {
+		return "", 0
+	}
+	return parseServerFromURI(opts.GetURI())
 }
 
 // NewClient connects to MongoDB using uri and returns an instrumented Client.
 // For custom TracerProvider/Propagators pass traceOpts.
 func NewClient(ctx context.Context, uri string, traceOpts ...ClientOption) (*Client, error) {
-	client, err := ConnectWithOptions(ctx, traceOpts, options.Client().ApplyURI(uri))
-	if err != nil {
-		return nil, err
-	}
-	client.serverAddr, client.serverPort = parseServerFromURI(uri)
-	client.mongoTP, client.deliverTracer = initMongoProvider(client.serverAddr, client.serverPort)
-	return client, nil
+	return ConnectWithOptions(ctx, traceOpts, options.Client().ApplyURI(uri))
 }
 
 // Disconnect disconnects the MongoDB client and shuts down the deliver TracerProvider if active.

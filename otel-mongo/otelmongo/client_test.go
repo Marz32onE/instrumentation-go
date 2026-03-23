@@ -1,6 +1,7 @@
 package otelmongo
 
 import (
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"testing"
 )
 
@@ -46,4 +47,27 @@ func TestMongoServiceName(t *testing.T) {
 			t.Errorf("mongoServiceName(%q, %d) = %q, want %q", tc.addr, tc.port, got, tc.want)
 		}
 	}
+}
+
+func TestParseServerFromClientOptions(t *testing.T) {
+	t.Run("nil options", func(t *testing.T) {
+		addr, port := parseServerFromClientOptions(nil)
+		if addr != "" || port != 0 {
+			t.Fatalf("expected empty addr/port, got %q:%d", addr, port)
+		}
+	})
+
+	t.Run("without apply uri", func(t *testing.T) {
+		addr, port := parseServerFromClientOptions(options.Client())
+		if addr != "" || port != 0 {
+			t.Fatalf("expected empty addr/port, got %q:%d", addr, port)
+		}
+	})
+
+	t.Run("with apply uri", func(t *testing.T) {
+		addr, port := parseServerFromClientOptions(options.Client().ApplyURI("mongodb://mongo:27018"))
+		if addr != "mongo" || port != 27018 {
+			t.Fatalf("expected mongo:27018, got %q:%d", addr, port)
+		}
+	})
 }
