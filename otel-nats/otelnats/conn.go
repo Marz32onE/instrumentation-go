@@ -25,7 +25,7 @@ import (
 const (
 	// ScopeName is the instrumentation scope name for Tracer creation (OTel contrib guideline).
 	ScopeName              = "github.com/Marz32onE/instrumentation-go/otel-nats/otelnats"
-	instrumentationVersion = "0.1.4"
+	instrumentationVersion = "0.1.5"
 	messagingSystem        = "nats"
 )
 
@@ -237,18 +237,30 @@ func (c *Conn) StartDeliverSpan(ctx context.Context, subject string) context.Con
 	if c.deliverTracer == nil {
 		return ctx
 	}
-	attrs := make([]attribute.KeyValue, 0, 2+len(c.serverAttrs))
-	attrs = append(attrs,
-		semconv.MessagingSystemKey.String(messagingSystem),
-		semconv.MessagingDestinationNameKey.String(subject),
-	)
-	attrs = append(attrs, c.serverAttrs...)
 	deliverCtx, span := c.deliverTracer.Start(ctx, subject+" deliver",
 		trace.WithSpanKind(trace.SpanKindConsumer),
-		trace.WithAttributes(attrs...),
+		trace.WithAttributes(c.deliverAttrs(subject)...),
 	)
 	span.End()
 	return deliverCtx
+}
+
+// ConsumerContextWithDeliver creates a consumer-side deliver span (SpanKindProducer) linked
+// to origin and returns a context carrying that deliver span as remote parent for consumer spans.
+// If deliver spans are disabled or origin is invalid, ctx is returned unchanged.
+func (c *Conn) ConsumerContextWithDeliver(ctx context.Context, subject string, origin trace.SpanContext) context.Context {
+	if c.deliverTracer == nil || !origin.IsValid() {
+		return ctx
+	}
+	detachedCtx := trace.ContextWithSpanContext(ctx, trace.SpanContext{})
+	_, deliverSpan := c.deliverTracer.Start(detachedCtx,
+		subject+" deliver",
+		trace.WithSpanKind(trace.SpanKindProducer),
+		trace.WithAttributes(c.deliverAttrs(subject)...),
+		trace.WithLinks(trace.Link{SpanContext: origin}),
+	)
+	deliverSpan.End()
+	return trace.ContextWithRemoteSpanContext(detachedCtx, deliverSpan.SpanContext())
 }
 
 // DeliverSpanEnabled reports whether the NATS deliver span feature is active.
@@ -368,19 +380,31 @@ func (c *Conn) QueueSubscribe(subject, queue string, handler MsgHandler) (*nats.
 func (c *Conn) wrapHandler(subject, queue string, handler MsgHandler) nats.MsgHandler {
 	return func(msg *nats.Msg) {
 		msgCtx := c.propagator.Extract(context.Background(), &HeaderCarrier{H: msg.Header})
+		originSpanCtx := trace.SpanContextFromContext(msgCtx)
+		consumerParentCtx := c.ConsumerContextWithDeliver(context.Background(), subject, originSpanCtx)
 		// Per OTel messaging semconv: correlate producer and consumer only via span link (no parent-child).
 		spanName := "process " + subject
 		opts := []trace.SpanStartOption{
 			trace.WithSpanKind(trace.SpanKindConsumer),
 			trace.WithAttributes(receiveAttrs(msg, queue, "process", c.serverAttrs)...),
 		}
-		if sc := trace.SpanContextFromContext(msgCtx); sc.IsValid() {
-			opts = append(opts, trace.WithLinks(trace.LinkFromContext(msgCtx)))
+		if originSpanCtx.IsValid() {
+			opts = append(opts, trace.WithLinks(trace.Link{SpanContext: originSpanCtx}))
 		}
-		ctx, span := c.tracer.Start(context.Background(), spanName, opts...)
+		ctx, span := c.tracer.Start(consumerParentCtx, spanName, opts...)
 		defer span.End()
 		handler(MsgWithContext{Msg: msg, Ctx: ctx})
 	}
+}
+
+func (c *Conn) deliverAttrs(subject string) []attribute.KeyValue {
+	attrs := make([]attribute.KeyValue, 0, 2+len(c.serverAttrs))
+	attrs = append(attrs,
+		semconv.MessagingSystemKey.String(messagingSystem),
+		semconv.MessagingDestinationNameKey.String(subject),
+	)
+	attrs = append(attrs, c.serverAttrs...)
+	return attrs
 }
 
 func publishAttrs(msg *nats.Msg, serverAttrs []attribute.KeyValue) []attribute.KeyValue {

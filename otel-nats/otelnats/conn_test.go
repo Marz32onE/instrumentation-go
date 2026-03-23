@@ -45,6 +45,15 @@ func findSpanByKind(spans []trace.ReadOnlySpan, kind oteltrace.SpanKind) trace.R
 	return nil
 }
 
+func findSpanByNameAndKind(spans []trace.ReadOnlySpan, name string, kind oteltrace.SpanKind) trace.ReadOnlySpan {
+	for _, s := range spans {
+		if s.Name() == name && s.SpanKind() == kind {
+			return s
+		}
+	}
+	return nil
+}
+
 func assertAttr(t *testing.T, attrs []attribute.KeyValue, key, want string) {
 	t.Helper()
 	for _, kv := range attrs {
@@ -233,8 +242,8 @@ func TestSubscribeConsumerSpanLinkedToProducer(t *testing.T) {
 	}
 
 	spans := sr.Ended()
-	producer := findSpanByKind(spans, oteltrace.SpanKindProducer)
-	consumer := findSpanByKind(spans, oteltrace.SpanKindConsumer)
+	producer := findSpanByNameAndKind(spans, "send "+subject, oteltrace.SpanKindProducer)
+	consumer := findSpanByNameAndKind(spans, "process "+subject, oteltrace.SpanKindConsumer)
 	require.NotNil(t, producer, "missing producer span")
 	require.NotNil(t, consumer, "missing consumer span")
 	require.Len(t, consumer.Links(), 1, "consumer span should have 1 link to producer")
@@ -365,8 +374,8 @@ func TestDeliverSpanConsumerLinksToDeliverSpan(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond)
 
 	spans := sr.Ended()
-	producer := findSpanByKind(spans, oteltrace.SpanKindProducer)
-	consumer := findSpanByKind(spans, oteltrace.SpanKindConsumer)
+	producer := findSpanByNameAndKind(spans, "send "+subject, oteltrace.SpanKindProducer)
+	consumer := findSpanByNameAndKind(spans, "process "+subject, oteltrace.SpanKindConsumer)
 	require.NotNil(t, producer, "missing producer span")
 	require.NotNil(t, consumer, "missing consumer span")
 
