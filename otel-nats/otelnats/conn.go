@@ -25,7 +25,7 @@ import (
 const (
 	// ScopeName is the instrumentation scope name for Tracer creation (OTel contrib guideline).
 	ScopeName              = "github.com/Marz32onE/instrumentation-go/otel-nats/otelnats"
-	instrumentationVersion = "0.1.2"
+	instrumentationVersion = "0.1.3"
 	messagingSystem        = "nats"
 )
 
@@ -182,7 +182,8 @@ func initNATSProvider(connectedAddr string) (*sdktrace.TracerProvider, trace.Tra
 	return tp, tracer
 }
 
-// useHTTPEndpoint detects whether endpoint is HTTP (scheme or port 4318).
+// useHTTPEndpoint detects whether endpoint is HTTP (explicit http(s) scheme, port 4318,
+// or host-only with no port — defaults to HTTP OTLP).
 func useHTTPEndpoint(endpoint string) bool {
 	s := strings.TrimSpace(endpoint)
 	if s == "" {
@@ -192,7 +193,11 @@ func useHTTPEndpoint(endpoint string) bool {
 		return true
 	}
 	if u, err := url.Parse("//" + s); err == nil {
-		if p, _ := strconv.Atoi(u.Port()); p == 4318 {
+		portStr := u.Port()
+		if portStr == "" {
+			return true
+		}
+		if p, _ := strconv.Atoi(portStr); p == 4318 {
 			return true
 		}
 	}

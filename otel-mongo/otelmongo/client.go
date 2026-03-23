@@ -217,7 +217,8 @@ func mongoServiceName(addr string, port int) string {
 	return "mongodb://" + addr
 }
 
-// useHTTPEndpoint detects whether endpoint is HTTP (scheme or port 4318).
+// useHTTPEndpoint detects whether endpoint is HTTP (explicit http(s) scheme, port 4318,
+// or host-only with no port — defaults to HTTP OTLP).
 func useHTTPEndpoint(endpoint string) bool {
 	s := strings.TrimSpace(endpoint)
 	if s == "" {
@@ -227,7 +228,11 @@ func useHTTPEndpoint(endpoint string) bool {
 		return true
 	}
 	if u, err := url.Parse("//" + s); err == nil {
-		if p, _ := strconv.Atoi(u.Port()); p == 4318 {
+		portStr := u.Port()
+		if portStr == "" {
+			return true
+		}
+		if p, _ := strconv.Atoi(portStr); p == 4318 {
 			return true
 		}
 	}
