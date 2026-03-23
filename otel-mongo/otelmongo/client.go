@@ -3,7 +3,6 @@ package otelmongo
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/url"
 	"os"
 	"strconv"
@@ -175,24 +174,25 @@ func parseServerFromURI(uri string) (addr string, port int) {
 
 // initMongoProvider creates an independent TracerProvider with service.name = "mongodb://{addr}"
 // for synthetic deliver spans. Only enabled when OTEL_EXPORTER_OTLP_ENDPOINT is set.
+// The endpoint must be a full URL (e.g. "http://otel-collector:4318") for HTTP,
+// or a host:port (e.g. "otel-collector:4317") for gRPC.
 func initMongoProvider(addr string, port int) (*sdktrace.TracerProvider, trace.Tracer) {
 	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 	if endpoint == "" {
 		return nil, nil
 	}
 	ctx := context.Background()
-	useHTTP := useHTTPEndpoint(endpoint)
 
 	var exp sdktrace.SpanExporter
 	var err error
-	if useHTTP {
+	if strings.HasPrefix(endpoint, "http://") || strings.HasPrefix(endpoint, "https://") {
 		exp, err = otlptracehttp.New(ctx,
-			otlptracehttp.WithEndpointURL(otlpHTTPExporterURL(endpoint)),
+			otlptracehttp.WithEndpointURL(endpoint),
 			otlptracehttp.WithInsecure(),
 		)
 	} else {
 		exp, err = otlptracegrpc.New(ctx,
-			otlptracegrpc.WithEndpoint(otlpGRPCExporterEndpoint(endpoint)),
+			otlptracegrpc.WithEndpoint(endpoint),
 			otlptracegrpc.WithInsecure(),
 		)
 	}
@@ -225,53 +225,6 @@ func mongoServiceName(addr string, port int) string {
 		return fmt.Sprintf("mongodb://%s:%d", addr, port)
 	}
 	return "mongodb://" + addr
-}
-
-// useHTTPEndpoint chooses OTLP/HTTP vs gRPC. Env without scheme and without port defaults to HTTP.
-func useHTTPEndpoint(endpoint string) bool {
-	s := strings.TrimSpace(endpoint)
-	if s == "" {
-		return false
-	}
-	if u, err := url.Parse(s); err == nil && (u.Scheme == "http" || u.Scheme == "https") {
-		return true
-	}
-	if u, err := url.Parse("//" + s); err == nil {
-		if u.Port() == "" {
-			return true
-		}
-		if p, _ := strconv.Atoi(u.Port()); p == 4318 {
-			return true
-		}
-	}
-	return false
-}
-
-func otlpHTTPExporterURL(endpoint string) string {
-	s := strings.TrimSpace(endpoint)
-	if strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://") {
-		return s
-	}
-	u, err := url.Parse("//" + s)
-	if err != nil || u.Hostname() == "" {
-		return "http://" + s
-	}
-	if p := u.Port(); p != "" {
-		return "http://" + net.JoinHostPort(u.Hostname(), p)
-	}
-	return "http://" + net.JoinHostPort(u.Hostname(), "4318")
-}
-
-func otlpGRPCExporterEndpoint(endpoint string) string {
-	s := strings.TrimSpace(endpoint)
-	u, err := url.Parse("//" + s)
-	if err != nil || u.Hostname() == "" {
-		return s
-	}
-	if p := u.Port(); p != "" {
-		return net.JoinHostPort(u.Hostname(), p)
-	}
-	return net.JoinHostPort(u.Hostname(), "4317")
 }
 
 // Database returns a wrapped Database for document-level tracing (uses otel globals).
