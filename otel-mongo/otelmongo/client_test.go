@@ -1,8 +1,9 @@
 package otelmongo
 
 import (
-	"go.mongodb.org/mongo-driver/mongo/options"
 	"testing"
+
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 func TestMongoDeliverSpanDisabledWithoutEndpoint(t *testing.T) {

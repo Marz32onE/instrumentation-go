@@ -5,12 +5,15 @@ import (
 )
 
 // Connect establishes a NATS connection with tracing. Signature aligns with nats.Connect.
-// Pass WithTracerProvider/WithPropagators to set otel globals; tracer/propagator are then read from globals.
+// Tracer and propagator are read from otel globals. Call otel.SetTracerProvider and
+// otel.SetTextMapPropagator at process startup, or pass WithTracerProvider/WithPropagators
+// to ConnectWithOptions for per-connection overrides (these do NOT update globals).
 func Connect(url string, natsOpts ...nats.Option) (*Conn, error) {
 	return ConnectWithOptions(url, filterNilOptions(natsOpts))
 }
 
-// ConnectWithOptions establishes a NATS connection with tracing. Trace options set otel globals; Conn uses globals.
+// ConnectWithOptions establishes a NATS connection with tracing.
+// WithTracerProvider/WithPropagators override the global for this Conn only (globals are not modified).
 func ConnectWithOptions(url string, natsOpts []nats.Option, traceOpts ...Option) (*Conn, error) {
 	nc, err := nats.Connect(url, natsOpts...)
 	if err != nil {

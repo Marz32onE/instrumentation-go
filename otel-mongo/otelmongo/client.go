@@ -124,7 +124,7 @@ func (c *Client) Disconnect(ctx context.Context) error {
 	if c.mongoTP != nil {
 		shutCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		_ = c.mongoTP.Shutdown(shutCtx)
+		_ = c.mongoTP.Shutdown(shutCtx) // best-effort; deliver spans may be lost on failure
 	}
 	return err
 }
@@ -205,6 +205,7 @@ func initMongoProvider(addr string, port int) (*sdktrace.TracerProvider, trace.T
 		semconv.ServiceName(serviceName),
 	))
 	if err != nil {
+		_ = exp.Shutdown(ctx) // avoid leaking the exporter connection
 		return nil, nil
 	}
 

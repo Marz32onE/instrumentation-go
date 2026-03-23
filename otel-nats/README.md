@@ -111,8 +111,10 @@ conn, err := otelnats.Connect(url, nil)
 
 | Item | Description |
 |------|-------------|
-| **Connect** | `Connect(url string, natsOpts []nats.Option)`. Uses `otel.GetTracerProvider()` and `otel.GetTextMapPropagator()` unless overridden via ConnectWithOptions. |
+| **Connect** | `Connect(url string, natsOpts ...nats.Option)`. Uses `otel.GetTracerProvider()` and `otel.GetTextMapPropagator()` unless overridden via ConnectWithOptions. |
 | **ConnectWithOptions** | Same with optional **WithTracerProvider(tp)** and **WithPropagators(p)**. |
+| **ConnectTLS** | `ConnectTLS(url, certFile, keyFile, caFile string, natsOpts ...nats.Option)`. Connects with mutual TLS. |
+| **ConnectWithCredentials** | `ConnectWithCredentials(url, credFile string, natsOpts ...nats.Option)`. Connects with JWT/NKey credentials. |
 | **ScopeName / Version()** | Used when creating Tracer (OTel contrib guideline). |
 | **Tests** | Use `otel.SetTracerProvider(tp)` (and `otel.SetTextMapPropagator(prop)` if needed) before Connect. |
 
@@ -138,6 +140,8 @@ api ──► nats ──► worker
 ```
 
 Deliver spans use an independent TracerProvider with `service.name = "nats://{connected_addr}"`. This is initialised automatically during `Connect`; no extra configuration is needed beyond setting the OTLP endpoint.
+
+The endpoint must be a **full URL** for HTTP (e.g. `http://otel-collector:4318`) or **host:port** for gRPC (e.g. `otel-collector:4317`). Bare hostnames without scheme or port are not supported.
 
 ---
 

@@ -171,6 +171,7 @@ func initNATSProvider(connectedAddr string) (*sdktrace.TracerProvider, trace.Tra
 		semconv.ServiceName(serviceName),
 	))
 	if err != nil {
+		_ = exp.Shutdown(ctx) // avoid leaking the exporter connection
 		return nil, nil
 	}
 
@@ -238,7 +239,7 @@ func (c *Conn) Close() {
 	if c.natsTP != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		_ = c.natsTP.Shutdown(ctx)
+		_ = c.natsTP.Shutdown(ctx) // best-effort; deliver spans may be lost on failure
 	}
 }
 
@@ -248,7 +249,7 @@ func (c *Conn) Drain() error {
 	if c.natsTP != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		_ = c.natsTP.Shutdown(ctx)
+		_ = c.natsTP.Shutdown(ctx) // best-effort; deliver spans may be lost on failure
 	}
 	return err
 }

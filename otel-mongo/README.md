@@ -137,7 +137,9 @@ This only filters exported spans; client CRUD behavior and `_oteltrace` propagat
 
 ## Deliver Spans (Service Graph)
 
-When `OTEL_EXPORTER_OTLP_ENDPOINT` is set, otelmongo creates synthetic "deliver" spans representing MongoDB as a broker node in Grafana service graph. Use `NewClient` (not `Connect`) to enable this — `NewClient` parses the URI for `server.address` and initialises the deliver TracerProvider.
+When `OTEL_EXPORTER_OTLP_ENDPOINT` is set, otelmongo creates synthetic "deliver" spans representing MongoDB as a broker node in Grafana service graph. Both `Connect` and `NewClient` support this — the server address is parsed from the URI provided via `options.Client().ApplyURI(uri)`.
+
+The endpoint must be a **full URL** for HTTP (e.g. `http://otel-collector:4318`) or **host:port** for gRPC (e.g. `otel-collector:4317`). Bare hostnames without scheme or port are not supported.
 
 ### Producer-side (write path)
 
