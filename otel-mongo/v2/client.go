@@ -3,6 +3,7 @@ package otelmongo
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strconv"
@@ -172,12 +173,12 @@ func initMongoProvider(addr string, port int) (*sdktrace.TracerProvider, trace.T
 	var err error
 	if useHTTP {
 		exp, err = otlptracehttp.New(ctx,
-			otlptracehttp.WithEndpoint(endpoint),
+			otlptracehttp.WithEndpointURL(otlpHTTPExporterURL(endpoint)),
 			otlptracehttp.WithInsecure(),
 		)
 	} else {
 		exp, err = otlptracegrpc.New(ctx,
-			otlptracegrpc.WithEndpoint(endpoint),
+			otlptracegrpc.WithEndpoint(otlpGRPCExporterEndpoint(endpoint)),
 			otlptracegrpc.WithInsecure(),
 		)
 	}
@@ -212,8 +213,7 @@ func mongoServiceName(addr string, port int) string {
 	return "mongodb://" + addr
 }
 
-// useHTTPEndpoint detects whether endpoint is HTTP (explicit http(s) scheme, port 4318,
-// or host-only with no port — defaults to HTTP OTLP).
+// useHTTPEndpoint chooses OTLP/HTTP vs gRPC. Env without scheme and without port defaults to HTTP.
 func useHTTPEndpoint(endpoint string) bool {
 	s := strings.TrimSpace(endpoint)
 	if s == "" {
@@ -223,15 +223,41 @@ func useHTTPEndpoint(endpoint string) bool {
 		return true
 	}
 	if u, err := url.Parse("//" + s); err == nil {
-		portStr := u.Port()
-		if portStr == "" {
+		if u.Port() == "" {
 			return true
 		}
-		if p, _ := strconv.Atoi(portStr); p == 4318 {
+		if p, _ := strconv.Atoi(u.Port()); p == 4318 {
 			return true
 		}
 	}
 	return false
+}
+
+func otlpHTTPExporterURL(endpoint string) string {
+	s := strings.TrimSpace(endpoint)
+	if strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://") {
+		return s
+	}
+	u, err := url.Parse("//" + s)
+	if err != nil || u.Hostname() == "" {
+		return "http://" + s
+	}
+	if p := u.Port(); p != "" {
+		return "http://" + net.JoinHostPort(u.Hostname(), p)
+	}
+	return "http://" + net.JoinHostPort(u.Hostname(), "4318")
+}
+
+func otlpGRPCExporterEndpoint(endpoint string) string {
+	s := strings.TrimSpace(endpoint)
+	u, err := url.Parse("//" + s)
+	if err != nil || u.Hostname() == "" {
+		return s
+	}
+	if p := u.Port(); p != "" {
+		return net.JoinHostPort(u.Hostname(), p)
+	}
+	return net.JoinHostPort(u.Hostname(), "4317")
 }
 
 // Database returns a wrapped Database for document-level tracing (uses otel globals).
