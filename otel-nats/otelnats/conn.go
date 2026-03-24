@@ -24,7 +24,7 @@ import (
 const (
 	// ScopeName is the instrumentation scope name for Tracer creation (OTel contrib guideline).
 	ScopeName              = "github.com/Marz32onE/instrumentation-go/otel-nats/otelnats"
-	instrumentationVersion = "0.1.5"
+	instrumentationVersion = "0.1.6"
 	messagingSystem        = "nats"
 )
 
@@ -114,7 +114,11 @@ func newConn(nc *nats.Conn, opts ...Option) *Conn {
 		propagator:  cfg.Propagators,
 		serverAttrs: serverAttrs,
 	}
-	natsTP, deliverTracer := initNATSProvider(nc.ConnectedAddr())
+	deliverServiceName := nc.ConnectedUrlRedacted()
+	if deliverServiceName == "" {
+		deliverServiceName = "nats://" + nc.ConnectedAddr()
+	}
+	natsTP, deliverTracer := initNATSProvider(deliverServiceName, serverAttrs)
 	c.natsTP = natsTP
 	c.deliverTracer = deliverTracer
 	return c
@@ -138,11 +142,12 @@ func serverAttrsFromConn(nc *nats.Conn) []attribute.KeyValue {
 	return attrs
 }
 
-// initNATSProvider creates an independent TracerProvider with service.name = "nats://{addr}"
-// for synthetic deliver spans. Only enabled when OTEL_EXPORTER_OTLP_ENDPOINT is set.
+// initNATSProvider creates an independent TracerProvider for synthetic deliver spans.
+// serviceName is the redacted connected URL (no password); serverAttrs come from ConnectedAddr.
+// Only enabled when OTEL_EXPORTER_OTLP_ENDPOINT is set.
 // The endpoint must be a full URL (e.g. "http://otel-collector:4318") for HTTP,
 // or a host:port (e.g. "otel-collector:4317") for gRPC.
-func initNATSProvider(connectedAddr string) (*sdktrace.TracerProvider, trace.Tracer) {
+func initNATSProvider(serviceName string, serverAttrs []attribute.KeyValue) (*sdktrace.TracerProvider, trace.Tracer) {
 	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 	if endpoint == "" {
 		return nil, nil
@@ -166,10 +171,10 @@ func initNATSProvider(connectedAddr string) (*sdktrace.TracerProvider, trace.Tra
 		return nil, nil
 	}
 
-	serviceName := "nats://" + connectedAddr
-	res, err := resource.New(ctx, resource.WithAttributes(
-		semconv.ServiceName(serviceName),
-	))
+	attrs := make([]attribute.KeyValue, 0, 1+len(serverAttrs))
+	attrs = append(attrs, semconv.ServiceName(serviceName))
+	attrs = append(attrs, serverAttrs...)
+	res, err := resource.New(ctx, resource.WithAttributes(attrs...))
 	if err != nil {
 		_ = exp.Shutdown(ctx) // avoid leaking the exporter connection
 		return nil, nil
@@ -351,14 +356,11 @@ func (c *Conn) wrapHandler(subject, queue string, handler MsgHandler) nats.MsgHa
 	}
 }
 
-func (c *Conn) deliverAttrs(subject string) []attribute.KeyValue {
-	attrs := make([]attribute.KeyValue, 0, 2+len(c.serverAttrs))
-	attrs = append(attrs,
+func (*Conn) deliverAttrs(subject string) []attribute.KeyValue {
+	return []attribute.KeyValue{
 		semconv.MessagingSystemKey.String(messagingSystem),
 		semconv.MessagingDestinationNameKey.String(subject),
-	)
-	attrs = append(attrs, c.serverAttrs...)
-	return attrs
+	}
 }
 
 func publishAttrs(msg *nats.Msg, serverAttrs []attribute.KeyValue) []attribute.KeyValue {
