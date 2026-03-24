@@ -12,15 +12,16 @@ Per [OTel Go Contrib](https://github.com/open-telemetry/opentelemetry-go-contrib
 | **Receiver** (`ReadMessage`) | The JSON envelope is unwrapped, trace-context headers are extracted and used to reconstruct the remote span context, and a new Go `context.Context` that carries the propagated span is returned to the caller. |
 
 ```
-┌─────────────────────────────────────┐
-│  WebSocket message body (JSON)       │
-│  {                                   │
-│    "headers": {                      │
-│      "traceparent": "00-abc…-01"     │
-│    },                                │
-│    "payload": <original bytes>       │
-│  }                                   │
-└─────────────────────────────────────┘
+┌───────────────────────────────────────────────┐
+│  WebSocket message body (JSON)                │
+│  {                                             │
+│    "headers": {                                │
+│      "traceparent": "00-<traceid>-<spanid>-01",│
+│      "tracestate": "k=v"                       │
+│    },                                          │
+│    "payload": "<base64>"                       │
+│  }                                             │
+└───────────────────────────────────────────────┘
 ```
 
 ## Installation
@@ -97,8 +98,16 @@ conn, resp, err := otelwebsocket.Dial(ctx, serverURL, nil)
 Every `WriteMessage` call wraps the payload in a JSON envelope:
 
 ```json
-{ "headers": { "traceparent": "00-…-01" }, "payload": <original bytes> }
+{
+  "headers": {
+    "traceparent": "00-<traceid>-<spanid>-<flags>",
+    "tracestate": "k=v"
+  },
+  "payload": "<base64>"
+}
 ```
+
+Canonical rule: `headers` only carries W3C trace context keys (`traceparent`, optional `tracestate`) in lowercase. Extra keys are ignored for propagation compatibility between Go and JS implementations.
 
 **Both sides must use this library** for automatic envelope unwrapping to work. If the other side sends a plain (non-envelope) message, `ReadMessage` returns the raw bytes unchanged — no error, no span context. This makes it safe to introduce the library incrementally.
 
