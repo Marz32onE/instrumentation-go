@@ -8,13 +8,12 @@
 //
 // # How it works
 //
-// On the sender side, WriteMessage serialises the application payload into a
-// small JSON envelope that also contains the current span's trace-context
-// headers (e.g. "traceparent" and "tracestate").  On the receiver side,
-// ReadMessage deserialises the envelope, re-creates the remote span context
-// from those headers, and returns a new Go context that carries the
-// propagated span so that the handler can create child spans that are
-// correctly linked to the originating trace.
+// On the sender side, WriteMessage serialises the application payload as
+// embedded JSON ({ "traceparent", "tracestate", "data" }), matching the
+// @marz32one/otelwebsocket / rxjs webSocket format. On the receiver side,
+// ReadMessage accepts either that embedded form or the header-style envelope
+// ({ "headers", "payload" }), extracts trace context, and returns a context
+// carrying the propagated span.
 //
 // # Usage
 //
@@ -82,7 +81,7 @@ func (c *Conn) WriteMessage(ctx context.Context, messageType int, data []byte) e
 	carrier := make(propagation.MapCarrier)
 	c.propagator.Inject(ctx, carrier)
 
-	encoded, err := marshalEnvelope(carrier, data)
+	encoded, err := marshalWire(carrier, data)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -96,10 +95,10 @@ func (c *Conn) WriteMessage(ctx context.Context, messageType int, data []byte) e
 	return nil
 }
 
-// ReadMessage reads the next envelope from the connection, extracts the
-// trace-context headers embedded in it, and returns a new context that
-// carries the remote span. Creates a "websocket.receive" consumer span linked
-// to the sender's span so the receive is visible in traces.
+// ReadMessage reads the next instrumented message (embedded or header-style
+// envelope), extracts trace context, and returns a new context that carries
+// the remote span. Creates a "websocket.receive" consumer span linked to the
+// sender's span so the receive is visible in traces.
 //
 // The returned messageType, data, and error values have the same semantics
 // as those of the underlying gorilla *websocket.Conn.ReadMessage.
@@ -109,33 +108,29 @@ func (c *Conn) ReadMessage(ctx context.Context) (context.Context, int, []byte, e
 		return ctx, msgType, raw, err
 	}
 
-	env, err := unmarshalEnvelope(raw)
-	if err != nil {
-		// The message was not produced by this library; return it as-is so
-		// that the application can still handle plain WebSocket messages.
+	payload, hdrs, ok := tryUnmarshalWire(raw)
+	if !ok {
+		// Not instrumented JSON; return raw bytes unchanged.
 		return ctx, msgType, raw, nil
 	}
 
-	// Extract sender's trace context from the envelope headers.
-	carrier := propagation.MapCarrier(env.Headers)
+	carrier := propagation.MapCarrier(hdrs)
 	senderCtx := c.propagator.Extract(ctx, carrier)
 
-	// Create a consumer span linked to the sender's span (async messaging convention).
 	startOpts := []trace.SpanStartOption{
 		trace.WithSpanKind(trace.SpanKindConsumer),
 		trace.WithAttributes(
 			attribute.Int("websocket.message.type", msgType),
-			attribute.Int("messaging.message.body.size", len(env.Payload)),
+			attribute.Int("messaging.message.body.size", len(payload)),
 		),
 	}
 	if sc := trace.SpanContextFromContext(senderCtx); sc.IsValid() {
 		startOpts = append(startOpts, trace.WithLinks(trace.Link{SpanContext: sc}))
 	}
-	// Start receive span under sender's trace so returned context has same trace ID.
 	outCtx, span := c.tracer.Start(senderCtx, "websocket.receive", startOpts...)
 	span.End()
 
-	return outCtx, msgType, env.Payload, nil
+	return outCtx, msgType, payload, nil
 }
 
 // Dial connects to the WebSocket server at the given URL and returns a

@@ -1,6 +1,8 @@
 package otelwebsocket
 
-import "encoding/json"
+import (
+	"encoding/json"
+)
 
 const (
 	// TraceparentHeader is the canonical W3C trace context header key.
@@ -9,16 +11,17 @@ const (
 	TracestateHeader = "tracestate"
 )
 
-// envelope is the on-wire JSON wrapper that carries both the application
-// payload and the W3C Trace Context headers so that receivers can
-// reconstruct the distributed-trace span from the caller.
+// envelope is the header-style wire format: trace context in headers + base64 payload.
 type envelope struct {
-	// Headers holds the propagated trace-context key/value pairs
-	// (e.g. "traceparent", "tracestate", and any baggage entries).
 	Headers map[string]string `json:"headers"`
+	Payload []byte            `json:"payload"`
+}
 
-	// Payload is the original application message body.
-	Payload []byte `json:"payload"`
+// embeddedWire matches JS @marz32one/otelwebsocket (rxjs webSocket) output.
+type embeddedWire struct {
+	Traceparent string          `json:"traceparent,omitempty"`
+	Tracestate  string          `json:"tracestate,omitempty"`
+	Data        json.RawMessage `json:"data"`
 }
 
 func canonicalTraceHeaders(headers map[string]string) map[string]string {
@@ -35,8 +38,18 @@ func canonicalTraceHeaders(headers map[string]string) map[string]string {
 	return out
 }
 
-func marshalEnvelope(headers map[string]string, payload []byte) ([]byte, error) {
-	return json.Marshal(envelope{Headers: canonicalTraceHeaders(headers), Payload: payload})
+// marshalWire encodes the application payload as embedded JSON (traceparent /
+// tracestate + data), matching the JavaScript package default send format.
+func marshalWire(carrier map[string]string, payload []byte) ([]byte, error) {
+	h := canonicalTraceHeaders(carrier)
+	emb := embeddedWire{Data: payloadAsRawJSON(payload)}
+	if tp := h[TraceparentHeader]; tp != "" {
+		emb.Traceparent = tp
+	}
+	if ts := h[TracestateHeader]; ts != "" {
+		emb.Tracestate = ts
+	}
+	return json.Marshal(emb)
 }
 
 func unmarshalEnvelope(data []byte) (envelope, error) {
@@ -48,4 +61,70 @@ func unmarshalEnvelope(data []byte) (envelope, error) {
 		env.Headers = make(map[string]string)
 	}
 	return env, nil
+}
+
+// tryUnmarshalWire returns the application payload and trace headers when data
+// is either embedded ({ traceparent?, tracestate?, data }) or header-style
+// ({ headers, payload }). Otherwise ok is false.
+func tryUnmarshalWire(data []byte) (payload []byte, headers map[string]string, ok bool) {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(data, &m); err != nil || len(m) == 0 {
+		return nil, nil, false
+	}
+	_, hasHeaders := m["headers"]
+	_, hasPayload := m["payload"]
+	_, hasData := m["data"]
+
+	if hasHeaders && hasPayload {
+		env, err := unmarshalEnvelope(data)
+		if err != nil {
+			return nil, nil, false
+		}
+		return env.Payload, canonicalTraceHeaders(env.Headers), true
+	}
+	if hasData {
+		var emb embeddedWire
+		if err := json.Unmarshal(data, &emb); err != nil {
+			return nil, nil, false
+		}
+		h := make(map[string]string)
+		if emb.Traceparent != "" {
+			h[TraceparentHeader] = emb.Traceparent
+		}
+		if emb.Tracestate != "" {
+			h[TracestateHeader] = emb.Tracestate
+		}
+		return dataBytesFromRawJSON(emb.Data), canonicalTraceHeaders(h), true
+	}
+	return nil, nil, false
+}
+
+func payloadAsRawJSON(payload []byte) json.RawMessage {
+	if len(payload) == 0 {
+		return json.RawMessage("null")
+	}
+	if json.Valid(payload) {
+		var v interface{}
+		if json.Unmarshal(payload, &v) == nil {
+			return json.RawMessage(payload)
+		}
+	}
+	b, err := json.Marshal(string(payload))
+	if err != nil {
+		return json.RawMessage("null")
+	}
+	return json.RawMessage(b)
+}
+
+func dataBytesFromRawJSON(raw json.RawMessage) []byte {
+	if len(raw) == 0 {
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return []byte(s)
+	}
+	out := make([]byte, len(raw))
+	copy(out, raw)
+	return out
 }

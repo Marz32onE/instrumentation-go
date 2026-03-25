@@ -5,32 +5,72 @@ import (
 	"testing"
 )
 
-func TestMarshalEnvelope_OnlyCanonicalTraceHeaders(t *testing.T) {
+func TestMarshalWire_OnlyCanonicalTraceHeaders(t *testing.T) {
 	in := map[string]string{
 		TraceparentHeader: "00-12345678901234567890123456789012-0123456789012345-01",
 		TracestateHeader:  "k=v",
 		"baggage":         "a=b",
 		"custom":          "x",
 	}
-	raw, err := marshalEnvelope(in, []byte("hello"))
+	raw, err := marshalWire(in, []byte(`"hello"`))
 	if err != nil {
-		t.Fatalf("marshalEnvelope error: %v", err)
+		t.Fatalf("marshalWire error: %v", err)
 	}
-	var env envelope
-	if err := json.Unmarshal(raw, &env); err != nil {
+	var emb embeddedWire
+	if err := json.Unmarshal(raw, &emb); err != nil {
 		t.Fatalf("json unmarshal error: %v", err)
 	}
-	if len(env.Headers) != 2 {
-		t.Fatalf("expected exactly 2 headers, got %d", len(env.Headers))
+	if emb.Traceparent == "" {
+		t.Fatalf("expected traceparent on wire")
 	}
-	if env.Headers[TraceparentHeader] == "" {
-		t.Fatalf("expected %s in envelope headers", TraceparentHeader)
+	if emb.Tracestate == "" {
+		t.Fatalf("expected tracestate on wire")
 	}
-	if env.Headers[TracestateHeader] == "" {
-		t.Fatalf("expected %s in envelope headers", TracestateHeader)
+	if string(emb.Data) != `"hello"` {
+		t.Fatalf("data = %q, want quoted hello", string(emb.Data))
 	}
-	if _, ok := env.Headers["baggage"]; ok {
-		t.Fatal("expected baggage to be excluded from envelope headers")
+}
+
+func TestTryUnmarshalWire_embeddedRoundTrip(t *testing.T) {
+	carrier := map[string]string{
+		TraceparentHeader: "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01",
+	}
+	inner := []byte(`{"body":"hi","api":"X"}`)
+	wire, err := marshalWire(carrier, inner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, hdrs, ok := tryUnmarshalWire(wire)
+	if !ok {
+		t.Fatal("expected ok")
+	}
+	if string(payload) != string(inner) {
+		t.Fatalf("payload %q want %q", payload, inner)
+	}
+	if hdrs[TraceparentHeader] != carrier[TraceparentHeader] {
+		t.Fatalf("traceparent header mismatch")
+	}
+}
+
+func TestTryUnmarshalWire_envelope(t *testing.T) {
+	envBytes, err := json.Marshal(envelope{
+		Headers: map[string]string{
+			TraceparentHeader: "00-11111111111111111111111111111111-2222222222222222-01",
+		},
+		Payload: []byte(`inner`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, hdrs, ok := tryUnmarshalWire(envBytes)
+	if !ok {
+		t.Fatal("expected ok for envelope")
+	}
+	if string(payload) != "inner" {
+		t.Fatalf("payload = %q", payload)
+	}
+	if hdrs[TraceparentHeader] == "" {
+		t.Fatal("missing traceparent")
 	}
 }
 
