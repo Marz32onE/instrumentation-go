@@ -1,8 +1,5 @@
 // Example demonstrates how to initialize the OpenTelemetry TracerProvider and
-// TextMapPropagator at process startup, then use otelwebsocket.
-// The instrumentation package does not provide InitTracer; the application is
-// responsible for creating and setting the global provider and propagator
-// (per OTel Go Contrib instrumentation guidelines).
+// TextMapPropagator at process startup, then use otelgorillaws.
 package main
 
 import (
@@ -21,7 +18,6 @@ import (
 )
 
 func main() {
-	// 1) Create TracerProvider and set global provider + propagator.
 	tp, err := newTracerProvider()
 	if err != nil {
 		log.Fatalf("newTracerProvider: %v", err)
@@ -38,12 +34,10 @@ func main() {
 		propagation.Baggage{},
 	))
 
-	// 2) Use instrumentation: after gorilla/websocket Upgrader.Upgrade, wrap with
-	//    conn := otelwebsocket.NewConn(upgradedConn)
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("Set OTEL_EXPORTER_OTLP_ENDPOINT and run with a real WebSocket server to test."))
+		_, _ = w.Write([]byte("Use otelgorillaws.NewConn after gorilla/websocket upgrade."))
 	})
-	log.Println("Example server (no WebSocket upgrade in this minimal example). Run with OTEL_EXPORTER_OTLP_ENDPOINT set.")
+	log.Println("Example server")
 	_ = http.ListenAndServe(":0", nil)
 }
 
@@ -61,7 +55,7 @@ func newTracerProvider() (*sdktrace.TracerProvider, error) {
 	}
 	res, err := resource.New(context.Background(),
 		resource.WithAttributes(
-			attribute.String("service.name", "otel-websocket-example"),
+			attribute.String("service.name", "otel-gorilla-ws-example"),
 			attribute.String("service.version", "0.0.1"),
 		),
 	)

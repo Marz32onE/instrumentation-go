@@ -1,4 +1,4 @@
-package otelwebsocket
+package otelgorillaws
 
 import (
 	"go.opentelemetry.io/otel"

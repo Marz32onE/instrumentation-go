@@ -1,4 +1,4 @@
-// Package otelwebsocket wraps github.com/gorilla/websocket and adds
+// Package otelgorillaws wraps github.com/gorilla/websocket and adds
 // OpenTelemetry distributed-tracing support by propagating the W3C Trace
 // Context inside the WebSocket message body.
 //
@@ -10,23 +10,11 @@
 //
 // On the sender side, WriteMessage serialises the application payload as
 // embedded JSON ({ "traceparent", "tracestate", "data" }), matching the
-// @marz32one/otelwebsocket / rxjs webSocket format. On the receiver side,
+// @marz32one/otel-rxjs-ws / rxjs webSocket format. On the receiver side,
 // ReadMessage accepts either that embedded form or the header-style envelope
 // ({ "headers", "payload" }), extracts trace context, and returns a context
 // carrying the propagated span.
-//
-// # Usage
-//
-//	// Dialling side
-//	raw, _, err := websocket.DefaultDialer.Dial(url, nil)
-//	conn := otelwebsocket.NewConn(raw)
-//	err = conn.WriteMessage(ctx, websocket.TextMessage, []byte("hello"))
-//
-//	// Upgrading side
-//	raw, err := upgrader.Upgrade(w, r, nil)
-//	conn := otelwebsocket.NewConn(raw)
-//	ctx, msgType, data, err := conn.ReadMessage(context.Background())
-package otelwebsocket
+package otelgorillaws
 
 import (
 	"context"
@@ -40,7 +28,7 @@ import (
 )
 
 // ScopeName is the instrumentation scope name for Tracer creation (OTel contrib guideline).
-const ScopeName = "github.com/Marz32onE/instrumentation-go/otel-websocket"
+const ScopeName = "github.com/Marz32onE/instrumentation-go/otel-gorilla-ws"
 
 // Conn is a WebSocket connection with built-in OpenTelemetry trace-context
 // propagation.  It embeds *websocket.Conn so that callers can still use all
@@ -63,11 +51,6 @@ func NewConn(conn *websocket.Conn, opts ...Option) *Conn {
 // WriteMessage encodes data together with the trace-context headers extracted
 // from ctx and sends the resulting JSON envelope over the WebSocket connection.
 // Creates a "websocket.send" producer span so the send is visible in traces.
-//
-// The messageType must be websocket.TextMessage or websocket.BinaryMessage;
-// the encoded payload is always JSON text regardless of the original type,
-// but the WebSocket frame type is preserved so that receivers can use the
-// same type-switch logic they would use without this library.
 func (c *Conn) WriteMessage(ctx context.Context, messageType int, data []byte) error {
 	ctx, span := c.tracer.Start(ctx, "websocket.send",
 		trace.WithSpanKind(trace.SpanKindProducer),
@@ -97,11 +80,7 @@ func (c *Conn) WriteMessage(ctx context.Context, messageType int, data []byte) e
 
 // ReadMessage reads the next instrumented message (embedded or header-style
 // envelope), extracts trace context, and returns a new context that carries
-// the remote span. Creates a "websocket.receive" consumer span linked to the
-// sender's span so the receive is visible in traces.
-//
-// The returned messageType, data, and error values have the same semantics
-// as those of the underlying gorilla *websocket.Conn.ReadMessage.
+// the remote span. Creates a "websocket.receive" consumer span linked to the sender span.
 func (c *Conn) ReadMessage(ctx context.Context) (context.Context, int, []byte, error) {
 	msgType, raw, err := c.Conn.ReadMessage()
 	if err != nil {
@@ -110,7 +89,6 @@ func (c *Conn) ReadMessage(ctx context.Context) (context.Context, int, []byte, e
 
 	payload, hdrs, ok := tryUnmarshalWire(raw)
 	if !ok {
-		// Not instrumented JSON; return raw bytes unchanged.
 		return ctx, msgType, raw, nil
 	}
 
@@ -133,9 +111,7 @@ func (c *Conn) ReadMessage(ctx context.Context) (context.Context, int, []byte, e
 	return outCtx, msgType, payload, nil
 }
 
-// Dial connects to the WebSocket server at the given URL and returns a
-// *Conn with trace-context propagation enabled.  It is a thin wrapper
-// around websocket.DefaultDialer.DialContext.
+// Dial connects to the WebSocket server and returns a trace-enabled *Conn.
 func Dial(ctx context.Context, urlStr string, requestHeader http.Header, opts ...Option) (*Conn, *http.Response, error) {
 	raw, resp, err := websocket.DefaultDialer.DialContext(ctx, urlStr, requestHeader)
 	if err != nil {

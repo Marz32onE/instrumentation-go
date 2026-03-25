@@ -10,7 +10,7 @@ OpenTelemetry instrumentation packages for NATS, MongoDB, and WebSocket, aligned
 | **otel-mongo/v2** | `github.com/Marz32onE/instrumentation-go/otel-mongo/v2` | 0.2.2 | MongoDB driver v2 wrapper; same API as v1; deliver spans for service graph. |
 | **otel-nats** | `github.com/Marz32onE/instrumentation-go/otel-nats/otelnats` | 0.1.5 | Core NATS connection, Publish, Subscribe (W3C trace in headers); deliver spans for service graph. |
 | **otel-nats** | `github.com/Marz32onE/instrumentation-go/otel-nats/oteljetstream` | 0.1.5 | JetStream streams, consumers, Publish, Consume, Messages, Fetch; deliver spans for service graph. |
-| **otel-websocket** | `github.com/Marz32onE/instrumentation-go/otel-websocket` | 0.1.1 | WebSocket trace-context propagation (JSON envelope in message body). |
+| **otel-gorilla-ws** | `github.com/Marz32onE/instrumentation-go/otel-gorilla-ws` | 0.1.1 | gorilla/websocket trace-context propagation (JSON envelope in message body). |
 
 ## Install
 
@@ -20,7 +20,7 @@ Each module is tagged separately. Use the matching tag with `go get`:
 go get github.com/Marz32onE/instrumentation-go/otel-mongo@otel-mongo/v0.2.3
 go get github.com/Marz32onE/instrumentation-go/otel-mongo/v2@otel-mongo/v2/v0.2.2
 go get github.com/Marz32onE/instrumentation-go/otel-nats@otel-nats/v0.1.5
-go get github.com/Marz32onE/instrumentation-go/otel-websocket@otel-websocket/v0.1.1
+go get github.com/Marz32onE/instrumentation-go/otel-gorilla-ws@otel-gorilla-ws/v0.1.1
 ```
 
 Then import the subpackages in your code (e.g. `.../otel-mongo/otelmongo`, `.../otel-nats/otelnats`).
@@ -40,7 +40,7 @@ instrumentation-go/
 │   ├── example/
 │   ├── go.mod
 │   └── README.md
-├── otel-websocket/
+├── otel-gorilla-ws/
 │   ├── *.go            # Conn, NewConn, WriteMessage, ReadMessage, WithTracerProvider, WithPropagators
 │   ├── example/
 │   ├── go.mod
@@ -51,9 +51,9 @@ instrumentation-go/
 ## Usage pattern
 
 1. **Application** creates a TracerProvider (e.g. OTLP exporter), sets `otel.SetTracerProvider(tp)` and `otel.SetTextMapPropagator(prop)`, and defers shutdown.
-2. **Application** uses the instrumentation: `otelnats.Connect(url, nil)`, `otelmongo.Connect(opts)`, `otelwebsocket.NewConn(raw)`, etc. Options like `WithTracerProvider(tp)` override the global when needed.
+2. **Application** uses the instrumentation: `otelnats.Connect(url, nil)`, `otelmongo.Connect(opts)`, `otelgorillaws.NewConn(raw)`, etc. Options like `WithTracerProvider(tp)` override the global when needed.
 
-See **otel-nats/example**, **otel-mongo/example**, and **otel-websocket/example** for runnable examples.
+See **otel-nats/example**, **otel-mongo/example**, and **otel-gorilla-ws/example** for runnable examples.
 
 ## `OTEL_EXPORTER_OTLP_ENDPOINT` format
 

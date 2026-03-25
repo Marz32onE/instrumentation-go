@@ -21,7 +21,7 @@ jobs:
           - otel-mongo
           - otel-mongo/v2
           - otel-nats
-          - otel-websocket
+          - otel-gorilla-ws
     steps:
       - uses: actions/checkout@v4
 

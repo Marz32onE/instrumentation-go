@@ -1,4 +1,4 @@
-package otelwebsocket
+package otelgorillaws
 
 import (
 	"encoding/json"
@@ -17,7 +17,7 @@ type envelope struct {
 	Payload []byte            `json:"payload"`
 }
 
-// embeddedWire matches JS @marz32one/otelwebsocket (rxjs webSocket) output.
+// embeddedWire matches JS @marz32one/otel-rxjs-ws (rxjs webSocket) output.
 type embeddedWire struct {
 	Traceparent string          `json:"traceparent,omitempty"`
 	Tracestate  string          `json:"tracestate,omitempty"`
