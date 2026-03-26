@@ -2,6 +2,17 @@
 
 `otel-gorilla-ws` wraps [gorilla/websocket](https://github.com/gorilla/websocket) and adds OpenTelemetry distributed tracing with W3C Trace Context propagation inside WebSocket message bodies.
 
+By default, outgoing messages use a header-style envelope:
+
+```json
+{
+  "headers": { "traceparent": "...", "tracestate": "..." },
+  "payload": "base64-encoded-bytes"
+}
+```
+
+Incoming messages are backward compatible with both header-style envelope and legacy embedded form (`{ traceparent, tracestate, data }`).
+
 ## Installation
 
 ```bash

@@ -9,11 +9,10 @@
 // # How it works
 //
 // On the sender side, WriteMessage serialises the application payload as
-// embedded JSON ({ "traceparent", "tracestate", "data" }), matching the
-// @marz32one/otel-rxjs-ws / rxjs webSocket format. On the receiver side,
-// ReadMessage accepts either that embedded form or the header-style envelope
-// ({ "headers", "payload" }), extracts trace context, and returns a context
-// carrying the propagated span.
+// header-style envelope ({ "headers", "payload" }). On the receiver side,
+// ReadMessage accepts both header-style envelope and the legacy embedded form
+// ({ "traceparent", "tracestate", "data" }), extracts trace context, and
+// returns a context carrying the propagated span.
 package otelgorillaws
 
 import (
@@ -48,8 +47,8 @@ func NewConn(conn *websocket.Conn, opts ...Option) *Conn {
 	return c
 }
 
-// WriteMessage encodes data together with the trace-context headers extracted
-// from ctx and sends the resulting JSON envelope over the WebSocket connection.
+// WriteMessage encodes data together with trace-context headers extracted from
+// ctx and sends a header-style JSON envelope over the WebSocket connection.
 // Creates a "websocket.send" producer span so the send is visible in traces.
 func (c *Conn) WriteMessage(ctx context.Context, messageType int, data []byte) error {
 	ctx, span := c.tracer.Start(ctx, "websocket.send",

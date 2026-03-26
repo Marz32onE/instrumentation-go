@@ -38,18 +38,14 @@ func canonicalTraceHeaders(headers map[string]string) map[string]string {
 	return out
 }
 
-// marshalWire encodes the application payload as embedded JSON (traceparent /
-// tracestate + data), matching the JavaScript package default send format.
+// marshalWire encodes the application payload as header-style envelope
+// ({ "headers", "payload" }) with base64 payload bytes.
 func marshalWire(carrier map[string]string, payload []byte) ([]byte, error) {
-	h := canonicalTraceHeaders(carrier)
-	emb := embeddedWire{Data: payloadAsRawJSON(payload)}
-	if tp := h[TraceparentHeader]; tp != "" {
-		emb.Traceparent = tp
+	env := envelope{
+		Headers: canonicalTraceHeaders(carrier),
+		Payload: payload,
 	}
-	if ts := h[TracestateHeader]; ts != "" {
-		emb.Tracestate = ts
-	}
-	return json.Marshal(emb)
+	return json.Marshal(env)
 }
 
 func unmarshalEnvelope(data []byte) (envelope, error) {
@@ -97,23 +93,6 @@ func tryUnmarshalWire(data []byte) (payload []byte, headers map[string]string, o
 		return dataBytesFromRawJSON(emb.Data), canonicalTraceHeaders(h), true
 	}
 	return nil, nil, false
-}
-
-func payloadAsRawJSON(payload []byte) json.RawMessage {
-	if len(payload) == 0 {
-		return json.RawMessage("null")
-	}
-	if json.Valid(payload) {
-		var v interface{}
-		if json.Unmarshal(payload, &v) == nil {
-			return json.RawMessage(payload)
-		}
-	}
-	b, err := json.Marshal(string(payload))
-	if err != nil {
-		return json.RawMessage("null")
-	}
-	return json.RawMessage(b)
 }
 
 func dataBytesFromRawJSON(raw json.RawMessage) []byte {

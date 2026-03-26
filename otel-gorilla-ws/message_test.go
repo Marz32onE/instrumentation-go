@@ -15,14 +15,17 @@ func TestMarshalWire_OnlyCanonicalTraceHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshalWire error: %v", err)
 	}
-	var emb embeddedWire
-	if err := json.Unmarshal(raw, &emb); err != nil {
+	var env envelope
+	if err := json.Unmarshal(raw, &env); err != nil {
 		t.Fatalf("json unmarshal error: %v", err)
 	}
-	if emb.Traceparent == "" || emb.Tracestate == "" {
-		t.Fatalf("expected trace headers on wire")
+	if env.Headers[TraceparentHeader] == "" || env.Headers[TracestateHeader] == "" {
+		t.Fatalf("expected canonical trace headers on wire")
 	}
-	if string(emb.Data) != `"hello"` {
-		t.Fatalf("data = %q, want quoted hello", string(emb.Data))
+	if _, ok := env.Headers["baggage"]; ok {
+		t.Fatalf("unexpected non-canonical header baggage on wire")
+	}
+	if string(env.Payload) != `"hello"` {
+		t.Fatalf("payload = %q, want quoted hello", string(env.Payload))
 	}
 }
