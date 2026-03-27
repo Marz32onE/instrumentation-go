@@ -8,11 +8,11 @@
 //
 // # How it works
 //
-// On the sender side, WriteMessage serialises the application payload as
-// header-style envelope ({ "headers", "payload" }). On the receiver side,
-// ReadMessage accepts both header-style envelope and the legacy embedded form
-// ({ "traceparent", "tracestate", "data" }), extracts trace context, and
-// returns a context carrying the propagated span.
+// On the sender side, WriteMessage injects traceparent/tracestate directly into
+// the JSON object payload (flat format). Non-object payloads are sent unchanged
+// with no trace injection. On the receiver side, ReadMessage extracts and removes
+// traceparent/tracestate from the top-level JSON object, returning a context
+// carrying the propagated span.
 package otelgorillaws
 
 import (
@@ -47,9 +47,9 @@ func NewConn(conn *websocket.Conn, opts ...Option) *Conn {
 	return c
 }
 
-// WriteMessage encodes data together with trace-context headers extracted from
-// ctx and sends a header-style JSON envelope over the WebSocket connection.
-// Creates a "websocket.send" producer span so the send is visible in traces.
+// WriteMessage injects traceparent/tracestate from ctx into the JSON object
+// payload and sends it over the WebSocket connection. Non-object payloads are
+// sent unchanged. Creates a "websocket.send" producer span.
 func (c *Conn) WriteMessage(ctx context.Context, messageType int, data []byte) error {
 	ctx, span := c.tracer.Start(ctx, "websocket.send",
 		trace.WithSpanKind(trace.SpanKindProducer),
@@ -77,9 +77,9 @@ func (c *Conn) WriteMessage(ctx context.Context, messageType int, data []byte) e
 	return nil
 }
 
-// ReadMessage reads the next instrumented message (embedded or header-style
-// envelope), extracts trace context, and returns a new context that carries
-// the remote span. Creates a "websocket.receive" consumer span linked to the sender span.
+// ReadMessage reads the next message, extracts traceparent/tracestate from the
+// top-level JSON object, and returns a new context carrying the remote span.
+// Creates a "websocket.receive" consumer span linked to the sender span.
 func (c *Conn) ReadMessage(ctx context.Context) (context.Context, int, []byte, error) {
 	msgType, raw, err := c.Conn.ReadMessage()
 	if err != nil {
