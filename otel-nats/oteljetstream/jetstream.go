@@ -50,6 +50,9 @@ type StreamInfoOpt = jetstream.StreamInfoOpt
 // ConsumerNameLister mirrors jetstream.ConsumerNameLister (iterate consumer names).
 type ConsumerNameLister = jetstream.ConsumerNameLister
 
+// PushConsumeOpt mirrors jetstream.PushConsumeOpt for PushConsumer.Consume options.
+type PushConsumeOpt = jetstream.PushConsumeOpt
+
 // AckPolicy and ack policies mirror jetstream (so callers need not import jetstream).
 type AckPolicy = jetstream.AckPolicy
 
@@ -65,6 +68,10 @@ const (
 type JetStream interface {
 	Publish(ctx context.Context, subject string, data []byte, opts ...jetstream.PublishOpt) (*PubAck, error)
 	PublishMsg(ctx context.Context, msg *nats.Msg, opts ...jetstream.PublishOpt) (*PubAck, error)
+	PushConsumer(ctx context.Context, stream string, consumer string) (PushConsumer, error)
+	CreatePushConsumer(ctx context.Context, stream string, cfg ConsumerConfig) (PushConsumer, error)
+	CreateOrUpdatePushConsumer(ctx context.Context, stream string, cfg ConsumerConfig) (PushConsumer, error)
+	UpdatePushConsumer(ctx context.Context, stream string, cfg ConsumerConfig) (PushConsumer, error)
 	Stream(ctx context.Context, name string) (Stream, error)
 	CreateOrUpdateStream(ctx context.Context, cfg StreamConfig) (Stream, error)
 	DeleteStream(ctx context.Context, name string) error
@@ -124,6 +131,41 @@ func (j *jsImpl) Stream(ctx context.Context, name string) (Stream, error) {
 		return nil, err
 	}
 	return &streamImpl{conn: j.conn, streamName: name, s: s}, nil
+}
+
+func (j *jsImpl) PushConsumer(ctx context.Context, stream string, consumer string) (PushConsumer, error) {
+	cons, err := j.js.PushConsumer(ctx, stream, consumer)
+	if err != nil {
+		return nil, err
+	}
+	return &pushConsumerImpl{conn: j.conn, streamName: stream, consumerName: consumer, c: cons}, nil
+}
+
+func (j *jsImpl) CreatePushConsumer(ctx context.Context, stream string, cfg ConsumerConfig) (PushConsumer, error) {
+	cons, err := j.js.CreatePushConsumer(ctx, stream, cfg)
+	if err != nil {
+		return nil, err
+	}
+	name := consumerNameFromConfig(cfg)
+	return &pushConsumerImpl{conn: j.conn, streamName: stream, consumerName: name, c: cons}, nil
+}
+
+func (j *jsImpl) CreateOrUpdatePushConsumer(ctx context.Context, stream string, cfg ConsumerConfig) (PushConsumer, error) {
+	cons, err := j.js.CreateOrUpdatePushConsumer(ctx, stream, cfg)
+	if err != nil {
+		return nil, err
+	}
+	name := consumerNameFromConfig(cfg)
+	return &pushConsumerImpl{conn: j.conn, streamName: stream, consumerName: name, c: cons}, nil
+}
+
+func (j *jsImpl) UpdatePushConsumer(ctx context.Context, stream string, cfg ConsumerConfig) (PushConsumer, error) {
+	cons, err := j.js.UpdatePushConsumer(ctx, stream, cfg)
+	if err != nil {
+		return nil, err
+	}
+	name := consumerNameFromConfig(cfg)
+	return &pushConsumerImpl{conn: j.conn, streamName: stream, consumerName: name, c: cons}, nil
 }
 
 func (j *jsImpl) CreateOrUpdateStream(ctx context.Context, cfg StreamConfig) (Stream, error) {

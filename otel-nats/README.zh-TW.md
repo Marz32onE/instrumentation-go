@@ -13,7 +13,7 @@
 ```
 otel-nats/
 ├── otelnats/           # Core NATS：Connect、Conn、Publish、Subscribe、HeaderCarrier
-├── oteljetstream/      # JetStream：New、JetStream、Stream、Consumer、Consume、Messages、Fetch
+├── oteljetstream/      # JetStream：New、JetStream、Stream、Consumer、PushConsumer、Consume、Messages、Fetch
 ├── example/            # 如何建立 TracerProvider、設定 global、使用 otelnats/oteljetstream
 ├── go.mod
 └── README.md
@@ -55,6 +55,15 @@ conn.Subscribe("subject", func(m otelnats.MsgWithContext) {
 js, _ := oteljetstream.New(conn)
 cons.Consume(func(m oteljetstream.MsgWithContext) {
     // m.Data()、m.Ack()、m.Context()
+})
+
+pushCons, _ := js.CreateOrUpdatePushConsumer(ctx, "MYSTREAM", oteljetstream.ConsumerConfig{
+    Durable:        "push-consumer",
+    DeliverSubject: "push.deliver",
+    FilterSubject:  "events.push",
+})
+pushCons.Consume(func(m oteljetstream.MsgWithContext) {
+    _ = m.Ack() // 與 pull consume 相同的 trace context 行為
 })
 ```
 

@@ -17,10 +17,10 @@ otel-nats/
 │   ├── conn.go         # Conn, Publish, PublishMsg, Subscribe, QueueSubscribe, WithTracerProvider, WithPropagators
 │   ├── propagation.go  # HeaderCarrier (nats.Header ↔ TextMapCarrier)
 │   └── doc.go
-├── oteljetstream/      # JetStream: New, JetStream, Stream, Consumer, Consume, Messages, Fetch
+├── oteljetstream/      # JetStream: New, JetStream, Stream, Consumer, PushConsumer, Consume, Messages, Fetch
 │   ├── jetstream.go    # New(conn), Publish, CreateOrUpdateStream
-│   ├── stream.go       # Stream, Consumer, CreateOrUpdateConsumer
-│   ├── consumer.go      # Consume, Messages, Fetch, MessageBatch (MessagesWithContext), MsgWithContext
+│   ├── stream.go       # Stream, Consumer/PushConsumer, CreateOrUpdateConsumer/CreateOrUpdatePushConsumer
+│   ├── consumer.go     # Consume, Messages, Fetch, MessageBatch (MessagesWithContext), MsgWithContext
 │   └── doc.go
 ├── example/            # How to create TracerProvider + set global + use otelnats/oteljetstream
 ├── go.mod
@@ -92,6 +92,17 @@ js, err := oteljetstream.New(conn)
 // After creating stream/consumer:
 cons.Consume(func(m oteljetstream.MsgWithContext) {
     // m.Data(), m.Ack(), m.Context() — trace from message headers
+})
+
+// Push consumer is also wrapped:
+pushCons, _ := js.CreateOrUpdatePushConsumer(ctx, "MYSTREAM", oteljetstream.ConsumerConfig{
+    Durable:        "push-consumer",
+    DeliverSubject: "push.deliver",
+    FilterSubject:  "events.push",
+})
+pushCons.Consume(func(m oteljetstream.MsgWithContext) {
+    // same trace extraction behavior
+    _ = m.Ack()
 })
 ```
 

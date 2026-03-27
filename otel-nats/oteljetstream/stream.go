@@ -13,8 +13,12 @@ type Stream interface {
 	Info(ctx context.Context, opts ...StreamInfoOpt) (*StreamInfo, error)
 	CachedInfo() *StreamInfo
 	Consumer(ctx context.Context, name string) (Consumer, error)
+	PushConsumer(ctx context.Context, name string) (PushConsumer, error)
 	CreateConsumer(ctx context.Context, cfg ConsumerConfig) (Consumer, error)
 	CreateOrUpdateConsumer(ctx context.Context, cfg ConsumerConfig) (Consumer, error)
+	CreatePushConsumer(ctx context.Context, cfg ConsumerConfig) (PushConsumer, error)
+	CreateOrUpdatePushConsumer(ctx context.Context, cfg ConsumerConfig) (PushConsumer, error)
+	UpdatePushConsumer(ctx context.Context, cfg ConsumerConfig) (PushConsumer, error)
 	DeleteConsumer(ctx context.Context, name string) error
 	ConsumerNames(ctx context.Context) ConsumerNameLister
 }
@@ -41,18 +45,20 @@ func (s *streamImpl) Consumer(ctx context.Context, name string) (Consumer, error
 	return &consumerImpl{conn: s.conn, streamName: s.streamName, consumerName: name, c: cons}, nil
 }
 
+func (s *streamImpl) PushConsumer(ctx context.Context, name string) (PushConsumer, error) {
+	cons, err := s.s.PushConsumer(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	return &pushConsumerImpl{conn: s.conn, streamName: s.streamName, consumerName: name, c: cons}, nil
+}
+
 func (s *streamImpl) CreateConsumer(ctx context.Context, cfg ConsumerConfig) (Consumer, error) {
 	cons, err := s.s.CreateConsumer(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
-	name := cfg.Durable
-	if name == "" && cfg.Name != "" {
-		name = cfg.Name
-	}
-	if name == "" {
-		name = "consumer"
-	}
+	name := consumerNameFromConfig(cfg)
 	return &consumerImpl{conn: s.conn, streamName: s.streamName, consumerName: name, c: cons}, nil
 }
 
@@ -61,14 +67,35 @@ func (s *streamImpl) CreateOrUpdateConsumer(ctx context.Context, cfg ConsumerCon
 	if err != nil {
 		return nil, err
 	}
-	name := cfg.Durable
-	if name == "" && cfg.Name != "" {
-		name = cfg.Name
-	}
-	if name == "" {
-		name = "consumer"
-	}
+	name := consumerNameFromConfig(cfg)
 	return &consumerImpl{conn: s.conn, streamName: s.streamName, consumerName: name, c: cons}, nil
+}
+
+func (s *streamImpl) CreatePushConsumer(ctx context.Context, cfg ConsumerConfig) (PushConsumer, error) {
+	cons, err := s.s.CreatePushConsumer(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	name := consumerNameFromConfig(cfg)
+	return &pushConsumerImpl{conn: s.conn, streamName: s.streamName, consumerName: name, c: cons}, nil
+}
+
+func (s *streamImpl) CreateOrUpdatePushConsumer(ctx context.Context, cfg ConsumerConfig) (PushConsumer, error) {
+	cons, err := s.s.CreateOrUpdatePushConsumer(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	name := consumerNameFromConfig(cfg)
+	return &pushConsumerImpl{conn: s.conn, streamName: s.streamName, consumerName: name, c: cons}, nil
+}
+
+func (s *streamImpl) UpdatePushConsumer(ctx context.Context, cfg ConsumerConfig) (PushConsumer, error) {
+	cons, err := s.s.UpdatePushConsumer(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	name := consumerNameFromConfig(cfg)
+	return &pushConsumerImpl{conn: s.conn, streamName: s.streamName, consumerName: name, c: cons}, nil
 }
 
 func (s *streamImpl) DeleteConsumer(ctx context.Context, name string) error {
@@ -77,4 +104,15 @@ func (s *streamImpl) DeleteConsumer(ctx context.Context, name string) error {
 
 func (s *streamImpl) ConsumerNames(ctx context.Context) ConsumerNameLister {
 	return s.s.ConsumerNames(ctx)
+}
+
+func consumerNameFromConfig(cfg ConsumerConfig) string {
+	name := cfg.Durable
+	if name == "" && cfg.Name != "" {
+		name = cfg.Name
+	}
+	if name == "" {
+		name = "consumer"
+	}
+	return name
 }

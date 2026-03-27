@@ -62,6 +62,13 @@ type Consumer interface {
 	CachedInfo() *ConsumerInfo
 }
 
+// PushConsumer mirrors jetstream.PushConsumer. Consume receives MsgWithContext with extracted trace.
+type PushConsumer interface {
+	Consume(handler MsgHandler, opts ...jetstream.PushConsumeOpt) (ConsumeContext, error)
+	Info(ctx context.Context) (*ConsumerInfo, error)
+	CachedInfo() *ConsumerInfo
+}
+
 // Attribute for distinguishing which consumer handled the message (durable/consumer name).
 const attrConsumerName = "messaging.consumer.name"
 
@@ -72,29 +79,24 @@ type consumerImpl struct {
 	c            jetstream.Consumer
 }
 
+type pushConsumerImpl struct {
+	conn         *otelnats.Conn
+	streamName   string
+	consumerName string
+	c            jetstream.PushConsumer
+}
+
 func (c *consumerImpl) Consume(handler MsgHandler, opts ...jetstream.PullConsumeOpt) (ConsumeContext, error) {
-	tracer, prop := c.conn.TraceContext()
-	wrapped := func(msg jetstream.Msg) {
-		h := msg.Headers()
-		if h == nil {
-			h = make(nats.Header)
-		}
-		msgCtx := prop.Extract(context.Background(), &otelnats.HeaderCarrier{H: h})
-		originSpanCtx := trace.SpanContextFromContext(msgCtx)
-		consumerParentCtx := c.conn.ConsumerContextWithDeliver(context.Background(), msg.Subject(), originSpanCtx)
-		spanName := "process " + msg.Subject()
-		attrs := append(receiveAttrs(msg, "process", c.conn.ServerAttrs()), attribute.String(attrConsumerName, c.consumerName))
-		startOpts := []trace.SpanStartOption{
-			trace.WithSpanKind(trace.SpanKindConsumer),
-			trace.WithAttributes(attrs...),
-		}
-		if originSpanCtx.IsValid() {
-			startOpts = append(startOpts, trace.WithLinks(trace.Link{SpanContext: originSpanCtx}))
-		}
-		ctx, span := tracer.Start(consumerParentCtx, spanName, startOpts...)
-		defer span.End()
-		handler(MsgWithContext{Msg: msg, Ctx: ctx})
+	wrapped := wrapConsumeHandler(c.conn, c.consumerName, handler)
+	cc, err := c.c.Consume(wrapped, opts...)
+	if err != nil {
+		return nil, err
 	}
+	return &consumeContextImpl{cc: cc}, nil
+}
+
+func (c *pushConsumerImpl) Consume(handler MsgHandler, opts ...jetstream.PushConsumeOpt) (ConsumeContext, error) {
+	wrapped := wrapConsumeHandler(c.conn, c.consumerName, handler)
 	cc, err := c.c.Consume(wrapped, opts...)
 	if err != nil {
 		return nil, err
@@ -157,6 +159,39 @@ func (c *consumerImpl) Info(ctx context.Context) (*ConsumerInfo, error) {
 
 func (c *consumerImpl) CachedInfo() *ConsumerInfo {
 	return c.c.CachedInfo()
+}
+
+func (c *pushConsumerImpl) Info(ctx context.Context) (*ConsumerInfo, error) {
+	return c.c.Info(ctx)
+}
+
+func (c *pushConsumerImpl) CachedInfo() *ConsumerInfo {
+	return c.c.CachedInfo()
+}
+
+func wrapConsumeHandler(conn *otelnats.Conn, consumerName string, handler MsgHandler) func(jetstream.Msg) {
+	tracer, prop := conn.TraceContext()
+	return func(msg jetstream.Msg) {
+		h := msg.Headers()
+		if h == nil {
+			h = make(nats.Header)
+		}
+		msgCtx := prop.Extract(context.Background(), &otelnats.HeaderCarrier{H: h})
+		originSpanCtx := trace.SpanContextFromContext(msgCtx)
+		consumerParentCtx := conn.ConsumerContextWithDeliver(context.Background(), msg.Subject(), originSpanCtx)
+		spanName := "process " + msg.Subject()
+		attrs := append(receiveAttrs(msg, "process", conn.ServerAttrs()), attribute.String(attrConsumerName, consumerName))
+		startOpts := []trace.SpanStartOption{
+			trace.WithSpanKind(trace.SpanKindConsumer),
+			trace.WithAttributes(attrs...),
+		}
+		if originSpanCtx.IsValid() {
+			startOpts = append(startOpts, trace.WithLinks(trace.Link{SpanContext: originSpanCtx}))
+		}
+		ctx, span := tracer.Start(consumerParentCtx, spanName, startOpts...)
+		defer span.End()
+		handler(MsgWithContext{Msg: msg, Ctx: ctx})
+	}
 }
 
 // receiveAttrs builds consumer span attributes. opType is "process" (push) or "receive" (pull).
