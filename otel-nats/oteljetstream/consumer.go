@@ -39,11 +39,9 @@ type MsgWithContext struct {
 // Context returns the context with extracted trace. Use for passing trace into downstream calls.
 func (m MsgWithContext) Context() context.Context { return m.Ctx }
 
-// MessageBatch is the result of Fetch/FetchBytes/FetchNoWait. Aligns with jetstream.MessageBatch:
-// Messages() returns the same channel as the original API; MessagesWithContext() adds (ctx, msg) with trace.
+// MessageBatch is the result of Fetch/FetchBytes/FetchNoWait. Use MessagesWithContext() for Msg + trace context.
 // Call Error() after the channel is closed.
 type MessageBatch interface {
-	Messages() <-chan Msg
 	MessagesWithContext() <-chan MsgWithContext
 	Error() error
 }
@@ -187,19 +185,6 @@ type messageBatchTrace struct {
 // arrives or the batch is exhausted.
 func (m *messageBatchTrace) MessagesWithContext() <-chan MsgWithContext {
 	return m.ch
-}
-
-// Messages returns a channel of raw messages without trace context.
-// It derives from MessagesWithContext; do not call both on the same batch.
-func (m *messageBatchTrace) Messages() <-chan Msg {
-	out := make(chan Msg)
-	go func() {
-		defer close(out)
-		for mwc := range m.ch {
-			out <- mwc.Msg
-		}
-	}()
-	return out
 }
 
 func (m *messageBatchTrace) Error() error {

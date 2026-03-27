@@ -20,7 +20,7 @@ otel-nats/
 ├── oteljetstream/      # JetStream: New, JetStream, Stream, Consumer, Consume, Messages, Fetch
 │   ├── jetstream.go    # New(conn), Publish, CreateOrUpdateStream
 │   ├── stream.go       # Stream, Consumer, CreateOrUpdateConsumer
-│   ├── consumer.go      # Consume, Messages, Fetch, MessageBatch, MsgWithContext
+│   ├── consumer.go      # Consume, Messages, Fetch, MessageBatch (MessagesWithContext), MsgWithContext
 │   └── doc.go
 ├── example/            # How to create TracerProvider + set global + use otelnats/oteljetstream
 ├── go.mod
@@ -145,29 +145,18 @@ The endpoint must be a **full URL** for HTTP (e.g. `http://otel-collector:4318`)
 
 ---
 
-## Important: MessageBatch channel exclusivity
+## MessageBatch (`Fetch` / `FetchBytes` / `FetchNoWait`)
 
-`MessageBatch` (returned by `Fetch`, `FetchBytes`, `FetchNoWait`) exposes two channels:
-
-| Method | Returns |
-|--------|---------|
-| `MessagesWithContext()` | `<-chan MsgWithContext` — message + extracted trace context |
-| `Messages()` | `<-chan Msg` — raw message only (derived from the above) |
-
-**Call only one of the two on any given batch.** `Messages()` internally consumes the `MessagesWithContext()` channel — calling both simultaneously will split messages between consumers unpredictably.
+Iterate `MessagesWithContext()` to receive each message with its extracted trace context. Drain the channel completely for each batch before the next `Fetch`.
 
 ```go
-// Correct: use one or the other
-batch, _ := consumer.Fetch(10)
-for mwc := range batch.MessagesWithContext() {   // ← trace context included
-    ctx := mwc.Context()
-    mwc.Ack()
+batch, err := consumer.Fetch(10)
+if err != nil { ... }
+for mwc := range batch.MessagesWithContext() {
+    _ = mwc.Context()
+    _ = mwc.Ack()
 }
-
-// Also correct: ignore trace context
-for msg := range batch.Messages() {
-    msg.Ack()
-}
+if err := batch.Error(); err != nil { ... }
 ```
 
 ---
