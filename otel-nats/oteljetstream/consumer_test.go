@@ -563,3 +563,57 @@ func TestConsumerCachedInfo(t *testing.T) {
 	require.NotNil(t, cached)
 	require.Equal(t, "cached-cons", cached.Name)
 }
+
+func TestJetStreamConsumerManagerConsumerKeepsTraceWrapper(t *testing.T) {
+	url := startJetStreamServer(t)
+	sr := tracetest.NewSpanRecorder()
+	tp := trace.NewTracerProvider(trace.WithSpanProcessor(sr))
+	prop := propagation.NewCompositeTextMapPropagator(propagation.TraceContext{})
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(prop)
+
+	conn, err := otelnats.Connect(url, nil)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	js, err := oteljetstream.New(conn)
+	require.NoError(t, err)
+	ctx := context.Background()
+	_, err = js.CreateOrUpdateStream(ctx, oteljetstream.StreamConfig{
+		Name:     "JSMANAGERTRACE",
+		Subjects: []string{"jsmanager.>"},
+	})
+	require.NoError(t, err)
+
+	_, err = js.CreateOrUpdateConsumer(ctx, "JSMANAGERTRACE", oteljetstream.ConsumerConfig{
+		Durable:       "js-manager-consumer",
+		FilterSubject: "jsmanager.msg",
+		AckPolicy:     oteljetstream.AckExplicitPolicy,
+	})
+	require.NoError(t, err)
+
+	cons, err := js.Consumer(ctx, "JSMANAGERTRACE", "js-manager-consumer")
+	require.NoError(t, err)
+
+	done := make(chan struct{}, 1)
+	cc, err := cons.Consume(func(m oteljetstream.MsgWithContext) {
+		if oteltrace.SpanFromContext(m.Context()).SpanContext().TraceID().IsValid() {
+			done <- struct{}{}
+		}
+		_ = m.Ack()
+	})
+	require.NoError(t, err)
+	defer cc.Stop()
+
+	tracer := tp.Tracer("pub-js-manager")
+	pubCtx, pubSpan := tracer.Start(ctx, "js-manager-parent")
+	defer pubSpan.End()
+	_, err = js.Publish(pubCtx, "jsmanager.msg", []byte("hello"))
+	require.NoError(t, err)
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("JetStream.Consumer returned consumer did not carry trace context")
+	}
+}

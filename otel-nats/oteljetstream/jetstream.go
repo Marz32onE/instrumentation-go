@@ -2,6 +2,7 @@ package oteljetstream
 
 import (
 	"context"
+	"time"
 
 	nats "github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -50,6 +51,15 @@ type StreamInfoOpt = jetstream.StreamInfoOpt
 // ConsumerNameLister mirrors jetstream.ConsumerNameLister (iterate consumer names).
 type ConsumerNameLister = jetstream.ConsumerNameLister
 
+// ConsumerInfoLister mirrors jetstream.ConsumerInfoLister (iterate consumer infos).
+type ConsumerInfoLister = jetstream.ConsumerInfoLister
+
+// OrderedConsumerConfig mirrors jetstream.OrderedConsumerConfig.
+type OrderedConsumerConfig = jetstream.OrderedConsumerConfig
+
+// ConsumerPauseResponse mirrors jetstream.ConsumerPauseResponse.
+type ConsumerPauseResponse = jetstream.ConsumerPauseResponse
+
 // PushConsumeOpt mirrors jetstream.PushConsumeOpt for PushConsumer.Consume options.
 type PushConsumeOpt = jetstream.PushConsumeOpt
 
@@ -68,6 +78,14 @@ const (
 type JetStream interface {
 	Publish(ctx context.Context, subject string, data []byte, opts ...jetstream.PublishOpt) (*PubAck, error)
 	PublishMsg(ctx context.Context, msg *nats.Msg, opts ...jetstream.PublishOpt) (*PubAck, error)
+	Consumer(ctx context.Context, stream string, consumer string) (Consumer, error)
+	CreateConsumer(ctx context.Context, stream string, cfg ConsumerConfig) (Consumer, error)
+	CreateOrUpdateConsumer(ctx context.Context, stream string, cfg ConsumerConfig) (Consumer, error)
+	UpdateConsumer(ctx context.Context, stream string, cfg ConsumerConfig) (Consumer, error)
+	OrderedConsumer(ctx context.Context, stream string, cfg OrderedConsumerConfig) (Consumer, error)
+	DeleteConsumer(ctx context.Context, stream string, consumer string) error
+	PauseConsumer(ctx context.Context, stream string, consumer string, pauseUntil time.Time) (*ConsumerPauseResponse, error)
+	ResumeConsumer(ctx context.Context, stream string, consumer string) (*ConsumerPauseResponse, error)
 	PushConsumer(ctx context.Context, stream string, consumer string) (PushConsumer, error)
 	CreatePushConsumer(ctx context.Context, stream string, cfg ConsumerConfig) (PushConsumer, error)
 	CreateOrUpdatePushConsumer(ctx context.Context, stream string, cfg ConsumerConfig) (PushConsumer, error)
@@ -131,6 +149,65 @@ func (j *jsImpl) Stream(ctx context.Context, name string) (Stream, error) {
 		return nil, err
 	}
 	return &streamImpl{conn: j.conn, streamName: name, s: s}, nil
+}
+
+func (j *jsImpl) Consumer(ctx context.Context, stream string, consumer string) (Consumer, error) {
+	cons, err := j.js.Consumer(ctx, stream, consumer)
+	if err != nil {
+		return nil, err
+	}
+	return &consumerImpl{conn: j.conn, streamName: stream, consumerName: consumer, c: cons}, nil
+}
+
+func (j *jsImpl) CreateConsumer(ctx context.Context, stream string, cfg ConsumerConfig) (Consumer, error) {
+	cons, err := j.js.CreateConsumer(ctx, stream, cfg)
+	if err != nil {
+		return nil, err
+	}
+	name := consumerNameFromConfig(cfg)
+	return &consumerImpl{conn: j.conn, streamName: stream, consumerName: name, c: cons}, nil
+}
+
+func (j *jsImpl) CreateOrUpdateConsumer(ctx context.Context, stream string, cfg ConsumerConfig) (Consumer, error) {
+	cons, err := j.js.CreateOrUpdateConsumer(ctx, stream, cfg)
+	if err != nil {
+		return nil, err
+	}
+	name := consumerNameFromConfig(cfg)
+	return &consumerImpl{conn: j.conn, streamName: stream, consumerName: name, c: cons}, nil
+}
+
+func (j *jsImpl) UpdateConsumer(ctx context.Context, stream string, cfg ConsumerConfig) (Consumer, error) {
+	cons, err := j.js.UpdateConsumer(ctx, stream, cfg)
+	if err != nil {
+		return nil, err
+	}
+	name := consumerNameFromConfig(cfg)
+	return &consumerImpl{conn: j.conn, streamName: stream, consumerName: name, c: cons}, nil
+}
+
+func (j *jsImpl) OrderedConsumer(ctx context.Context, stream string, cfg OrderedConsumerConfig) (Consumer, error) {
+	cons, err := j.js.OrderedConsumer(ctx, stream, cfg)
+	if err != nil {
+		return nil, err
+	}
+	name := cfg.NamePrefix
+	if name == "" {
+		name = "ordered-consumer"
+	}
+	return &consumerImpl{conn: j.conn, streamName: stream, consumerName: name, c: cons}, nil
+}
+
+func (j *jsImpl) DeleteConsumer(ctx context.Context, stream string, consumer string) error {
+	return j.js.DeleteConsumer(ctx, stream, consumer)
+}
+
+func (j *jsImpl) PauseConsumer(ctx context.Context, stream string, consumer string, pauseUntil time.Time) (*ConsumerPauseResponse, error) {
+	return j.js.PauseConsumer(ctx, stream, consumer, pauseUntil)
+}
+
+func (j *jsImpl) ResumeConsumer(ctx context.Context, stream string, consumer string) (*ConsumerPauseResponse, error) {
+	return j.js.ResumeConsumer(ctx, stream, consumer)
 }
 
 func (j *jsImpl) PushConsumer(ctx context.Context, stream string, consumer string) (PushConsumer, error) {

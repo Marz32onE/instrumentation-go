@@ -4,7 +4,7 @@
 
 ---
 
-OpenTelemetry tracing for [NATS](https://nats.io/) and [NATS JetStream](https://docs.nats.io/nats-concepts/jetstream), aligned with the official `nats.go` / `nats.go/jetstream` APIs. Propagates W3C Trace Context in message headers. Per [OTel Go Contrib](https://github.com/open-telemetry/opentelemetry-go-contrib/tree/main/instrumentation): packages accept **TracerProvider** and **Propagators** via options; they do **not** provide InitTracer. Set the global provider and propagator at process startup (see **example/**).
+OpenTelemetry tracing for [NATS](https://nats.io/) and [NATS JetStream](https://docs.nats.io/nats-concepts/jetstream), aligned with the official `nats.go` / `nats.go/jetstream` APIs. Propagates W3C Trace Context in message headers. `oteljetstream` now fully wraps JetStream consumer management APIs (`StreamConsumerManager` on `JetStream` and `ConsumerManager` on `Stream`) while keeping message publish/consume tracing behavior unchanged. Per [OTel Go Contrib](https://github.com/open-telemetry/opentelemetry-go-contrib/tree/main/instrumentation): packages accept **TracerProvider** and **Propagators** via options; they do **not** provide InitTracer. Set the global provider and propagator at process startup (see **example/**).
 
 ---
 
@@ -17,7 +17,7 @@ otel-nats/
 │   ├── conn.go         # Conn, Publish, PublishMsg, Subscribe, QueueSubscribe, WithTracerProvider, WithPropagators
 │   ├── propagation.go  # HeaderCarrier (nats.Header ↔ TextMapCarrier)
 │   └── doc.go
-├── oteljetstream/      # JetStream: New, JetStream, Stream, Consumer, PushConsumer, Consume, Messages, Fetch
+├── oteljetstream/      # JetStream: New, JetStream, Stream, Consumer, PushConsumer, full consumer-manager wrappers, Consume, Messages, Fetch
 │   ├── jetstream.go    # New(conn), Publish, CreateOrUpdateStream
 │   ├── stream.go       # Stream, Consumer/PushConsumer, CreateOrUpdateConsumer/CreateOrUpdatePushConsumer
 │   ├── consumer.go     # Consume, Messages, Fetch, MessageBatch (MessagesWithContext), MsgWithContext
@@ -127,6 +127,7 @@ conn, err := otelnats.Connect(url, nil)
 | **ConnectTLS** | `ConnectTLS(url, certFile, keyFile, caFile string, natsOpts ...nats.Option)`. Connects with mutual TLS. |
 | **ConnectWithCredentials** | `ConnectWithCredentials(url, credFile string, natsOpts ...nats.Option)`. Connects with JWT/NKey credentials. |
 | **ScopeName / Version()** | Used when creating Tracer (OTel contrib guideline). |
+| **JetStream consumer managers** | `JetStream` fully wraps `StreamConsumerManager`; `Stream` fully wraps `ConsumerManager`. Methods returning `Consumer`/`PushConsumer` remain trace-enabled wrappers. |
 | **Tests** | Use `otel.SetTracerProvider(tp)` (and `otel.SetTextMapPropagator(prop)` if needed) before Connect. |
 
 ---
