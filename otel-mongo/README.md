@@ -204,6 +204,27 @@ Every `InsertOne`, `InsertMany`, `ReplaceOne`, and `UpdateOne`/`UpdateMany`/`Upd
 
 ---
 
+## Diagnostic logging
+
+Uses [`log/slog`](https://pkg.go.dev/log/slog) — no output by default.
+
+| Level | Events |
+|-------|--------|
+| `DEBUG` | Deliver tracer initialised successfully (logs `service` and `endpoint`) |
+| `WARN` | OTLP exporter creation failure; resource creation failure |
+
+Enable with a debug-level slog handler at startup:
+
+```go
+slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+    Level: slog.LevelDebug,
+})))
+```
+
+Log entries use the `otelmongo:` prefix with `error`, `reason`, `service`, and `endpoint` key-value pairs.
+
+---
+
 ## Dependencies
 
 - **v2** (`.../otel-mongo/v2`): `go.mongodb.org/mongo-driver/v2`, `go.opentelemetry.io/contrib/instrumentation/.../v2/mongo/otelmongo`, `go.opentelemetry.io/otel` and SDK. See `v2/go.mod`.

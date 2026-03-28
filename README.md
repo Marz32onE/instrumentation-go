@@ -55,6 +55,29 @@ instrumentation-go/
 
 See **otel-nats/example**, **otel-mongo/example**, and **otel-gorilla-ws/example** for runnable examples.
 
+## Diagnostic logging
+
+All packages use [`log/slog`](https://pkg.go.dev/log/slog) for structured diagnostic output — no output by default (slog respects the default handler level).
+
+| Package | Level | Events logged |
+|---------|-------|---------------|
+| `otel-nats` | `DEBUG` | Server address parse failure, deliver tracer init success |
+| `otel-nats` | `WARN` | Deliver tracer init failure (OTLP endpoint missing or unreachable) |
+| `otel-mongo` | `DEBUG` | Deliver tracer init success |
+| `otel-mongo` | `WARN` | OTLP exporter creation failure, resource creation failure |
+
+To enable verbose output during development, configure the default slog handler:
+
+```go
+slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+    Level: slog.LevelDebug,
+})))
+```
+
+Log entries use a package prefix (`otelnats:`, `otelmongo:`) and key-value pairs (`reason`, `error`, `service`, `endpoint`) for easy filtering.
+
+---
+
 ## `OTEL_EXPORTER_OTLP_ENDPOINT` format
 
 The deliver span feature (otel-mongo, otel-nats) reads `OTEL_EXPORTER_OTLP_ENDPOINT` to create an independent TracerProvider for synthetic broker spans. The endpoint value must be explicit:

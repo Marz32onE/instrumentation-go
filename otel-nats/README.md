@@ -173,6 +173,27 @@ if err := batch.Error(); err != nil { ... }
 
 ---
 
+## Diagnostic logging
+
+Uses [`log/slog`](https://pkg.go.dev/log/slog) — no output by default.
+
+| Level | Events |
+|-------|--------|
+| `DEBUG` | Server address parse failure in `serverAttrsFromConn`; deliver tracer initialised successfully |
+| `WARN` | Deliver tracer init failure (exporter or resource creation error) |
+
+Enable with a debug-level slog handler at startup:
+
+```go
+slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+    Level: slog.LevelDebug,
+})))
+```
+
+Log entries use the `otelnats:` prefix with `error`, `reason`, `service`, and `endpoint` key-value pairs.
+
+---
+
 ## Dependencies
 
 - `github.com/nats-io/nats.go` (includes JetStream)
