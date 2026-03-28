@@ -38,7 +38,12 @@ func main() {
 		_, _ = w.Write([]byte("Use otelgorillaws.NewConn after gorilla/websocket upgrade."))
 	})
 	log.Println("Example server")
-	_ = http.ListenAndServe(":0", nil)
+	srv := &http.Server{
+		Addr:              ":0",
+		Handler:           nil,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	_ = srv.ListenAndServe()
 }
 
 func newTracerProvider() (*sdktrace.TracerProvider, error) {

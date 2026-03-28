@@ -373,6 +373,64 @@ func TestFetchBytesTraceContext(t *testing.T) {
 	}
 }
 
+func TestOrderedConsumerTraceContext(t *testing.T) {
+	url := startJetStreamServer(t)
+	sr := tracetest.NewSpanRecorder()
+	tp := trace.NewTracerProvider(trace.WithSpanProcessor(sr))
+	prop := propagation.NewCompositeTextMapPropagator(propagation.TraceContext{})
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(prop)
+
+	conn, err := otelnats.Connect(url, nil)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	js, err := oteljetstream.New(conn)
+	require.NoError(t, err)
+	ctx := context.Background()
+	_, err = js.CreateOrUpdateStream(ctx, oteljetstream.StreamConfig{
+		Name:     "ORDEREDTEST",
+		Subjects: []string{"ordered.>"},
+	})
+	require.NoError(t, err)
+
+	stream, err := js.Stream(ctx, "ORDEREDTEST")
+	require.NoError(t, err)
+
+	orderedCons, err := stream.OrderedConsumer(ctx, oteljetstream.OrderedConsumerConfig{
+		FilterSubjects: []string{"ordered.msg"},
+		NamePrefix:     "ordered-test",
+	})
+	require.NoError(t, err)
+
+	done := make(chan struct{}, 1)
+	cc, err := orderedCons.Consume(func(m oteljetstream.MsgWithContext) {
+		if oteltrace.SpanFromContext(m.Context()).SpanContext().TraceID().IsValid() {
+			done <- struct{}{}
+		}
+		// OrderedConsumer does not require Ack
+	})
+	require.NoError(t, err)
+	defer cc.Stop()
+
+	tracer := tp.Tracer("ordered-pub")
+	pubCtx, pubSpan := tracer.Start(ctx, "ordered-parent")
+	defer pubSpan.End()
+	_, err = js.Publish(pubCtx, "ordered.msg", []byte("hello ordered"))
+	require.NoError(t, err)
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("OrderedConsumer did not receive trace context")
+	}
+
+	spans := sr.Ended()
+	consumer := findSpanByNameAndKind(spans, "process ordered.msg", oteltrace.SpanKindConsumer)
+	require.NotNil(t, consumer, "no ordered consumer span")
+	assertAttr(t, consumer.Attributes(), "messaging.consumer.name", "ordered-test")
+}
+
 func TestConsumerInfo(t *testing.T) {
 	url := startJetStreamServer(t)
 	otel.SetTracerProvider(trace.NewTracerProvider())
