@@ -3,6 +3,7 @@ package otelmongo
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"os"
 	"strconv"
@@ -197,6 +198,7 @@ func initMongoProvider(addr string, port int) (*sdktrace.TracerProvider, trace.T
 		)
 	}
 	if err != nil {
+		slog.Warn("otelmongo: deliver tracer disabled", "reason", "exporter creation failed", "error", err)
 		return nil, nil
 	}
 
@@ -205,9 +207,11 @@ func initMongoProvider(addr string, port int) (*sdktrace.TracerProvider, trace.T
 		semconv.ServiceName(serviceName),
 	))
 	if err != nil {
+		slog.Warn("otelmongo: deliver tracer disabled", "reason", "resource creation failed", "error", err)
 		_ = exp.Shutdown(ctx) // avoid leaking the exporter connection
 		return nil, nil
 	}
+	slog.Debug("otelmongo: deliver tracer enabled", "service", serviceName, "endpoint", endpoint) //nolint:gosec // intentional diagnostic log of internal config values
 
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exp),

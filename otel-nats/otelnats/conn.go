@@ -2,6 +2,7 @@ package otelnats
 
 import (
 	"context"
+	"log/slog"
 	"net"
 	"os"
 	"strconv"
@@ -49,6 +50,7 @@ type Conn struct {
 	tracer        trace.Tracer
 	propagator    propagation.TextMapPropagator
 	serverAttrs   []attribute.KeyValue
+	traceDest     string                   // Nats-Trace-Dest subject; empty means disabled
 	deliverTracer trace.Tracer             // NATS deliver span tracer (nil when disabled)
 	natsTP        *sdktrace.TracerProvider // independent TracerProvider for NATS service (nil when disabled)
 }
@@ -65,6 +67,7 @@ func (f optionFunc) apply(c *connConfig) { f(c) }
 type connConfig struct {
 	TracerProvider trace.TracerProvider
 	Propagators    propagation.TextMapPropagator
+	TraceDest      string
 }
 
 func newConnConfig(opts ...Option) *connConfig {
@@ -93,6 +96,15 @@ func WithPropagators(p propagation.TextMapPropagator) Option {
 	})
 }
 
+// WithTraceDestination sets the Nats-Trace-Dest header value injected on every PublishMsg call.
+// When set, the NATS server (2.11+) publishes infrastructure trace events to that subject,
+// which can be consumed by SubscribeTraceEvents to emit OTel spans. Empty string disables.
+func WithTraceDestination(subject string) Option {
+	return optionFunc(func(c *connConfig) {
+		c.TraceDest = subject
+	})
+}
+
 // Version returns the instrumentation module version for tracer creation (OTel contrib guideline).
 func Version() string {
 	return instrumentationVersion
@@ -113,6 +125,7 @@ func newConn(nc *nats.Conn, opts ...Option) *Conn {
 		tracer:      tracer,
 		propagator:  cfg.Propagators,
 		serverAttrs: serverAttrs,
+		traceDest:   cfg.TraceDest,
 	}
 	deliverServiceName := nc.ConnectedUrlRedacted()
 	if deliverServiceName == "" {
@@ -133,6 +146,7 @@ func serverAttrsFromConn(nc *nats.Conn) []attribute.KeyValue {
 	}
 	host, portStr, err := net.SplitHostPort(addr)
 	if err != nil {
+		slog.Debug("otelnats: server address parse failed, using raw addr", "addr", addr, "error", err)
 		return []attribute.KeyValue{attribute.String("server.address", addr)}
 	}
 	attrs := []attribute.KeyValue{attribute.String("server.address", host)}
@@ -150,6 +164,7 @@ func serverAttrsFromConn(nc *nats.Conn) []attribute.KeyValue {
 func initNATSProvider(serviceName string, serverAttrs []attribute.KeyValue) (*sdktrace.TracerProvider, trace.Tracer) {
 	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 	if endpoint == "" {
+		slog.Debug("otelnats: deliver tracer disabled", "reason", "OTEL_EXPORTER_OTLP_ENDPOINT not set")
 		return nil, nil
 	}
 	ctx := context.Background()
@@ -168,6 +183,7 @@ func initNATSProvider(serviceName string, serverAttrs []attribute.KeyValue) (*sd
 		)
 	}
 	if err != nil {
+		slog.Warn("otelnats: deliver tracer disabled", "reason", "exporter creation failed", "error", err)
 		return nil, nil
 	}
 
@@ -176,9 +192,11 @@ func initNATSProvider(serviceName string, serverAttrs []attribute.KeyValue) (*sd
 	attrs = append(attrs, serverAttrs...)
 	res, err := resource.New(ctx, resource.WithAttributes(attrs...))
 	if err != nil {
+		slog.Warn("otelnats: deliver tracer disabled", "reason", "resource creation failed", "error", err)
 		_ = exp.Shutdown(ctx) // avoid leaking the exporter connection
 		return nil, nil
 	}
+	slog.Debug("otelnats: deliver tracer enabled", "service", serviceName, "endpoint", endpoint) //nolint:gosec // intentional diagnostic log of internal config values
 
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exp),
@@ -224,6 +242,9 @@ func (c *Conn) ConsumerContextWithDeliver(ctx context.Context, subject string, o
 
 // DeliverSpanEnabled reports whether the NATS deliver span feature is active.
 func (c *Conn) DeliverSpanEnabled() bool { return c.deliverTracer != nil }
+
+// TraceDest returns the configured Nats-Trace-Dest subject (empty if disabled).
+func (c *Conn) TraceDest() string { return c.traceDest }
 
 // ServerAttrs returns the pre-built server.address / server.port attributes for this connection.
 func (c *Conn) ServerAttrs() []attribute.KeyValue { return c.serverAttrs }
@@ -275,6 +296,9 @@ func (c *Conn) Publish(ctx context.Context, subject string, data []byte) error {
 func (c *Conn) PublishMsg(ctx context.Context, msg *nats.Msg) error {
 	if msg.Header == nil {
 		msg.Header = make(nats.Header)
+	}
+	if c.traceDest != "" {
+		msg.Header.Set("Nats-Trace-Dest", c.traceDest)
 	}
 	spanName := "send " + msg.Subject
 	ctx, span := c.tracer.Start(ctx, spanName,

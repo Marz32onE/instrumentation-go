@@ -124,6 +124,9 @@ func (j *jsImpl) PublishMsg(ctx context.Context, msg *nats.Msg, opts ...jetstrea
 	if msg.Header == nil {
 		msg.Header = make(nats.Header)
 	}
+	if dest := j.conn.TraceDest(); dest != "" {
+		msg.Header.Set("Nats-Trace-Dest", dest)
+	}
 	ctx, span := tracer.Start(ctx, "send "+msg.Subject,
 		trace.WithSpanKind(trace.SpanKindProducer),
 		trace.WithAttributes(publishAttrs(msg, j.conn.ServerAttrs())...),
