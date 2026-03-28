@@ -54,6 +54,19 @@ func findSpanByNameAndKind(spans []trace.ReadOnlySpan, name string, kind oteltra
 	return nil
 }
 
+// waitSpanByNameAndKind polls until a span is in the recorder's Ended() list.
+// Consume callbacks use defer span.End(), so the span is recorded only after the handler returns;
+// reading sr.Ended() immediately after a done signal races with that defer (flaky under -race).
+func waitSpanByNameAndKind(t *testing.T, sr *tracetest.SpanRecorder, name string, kind oteltrace.SpanKind) trace.ReadOnlySpan {
+	t.Helper()
+	var got trace.ReadOnlySpan
+	require.Eventually(t, func() bool {
+		got = findSpanByNameAndKind(sr.Ended(), name, kind)
+		return got != nil
+	}, 2*time.Second, 5*time.Millisecond, "wait for ended span %q", name)
+	return got
+}
+
 func assertAttr(t *testing.T, attrs []attribute.KeyValue, key, want string) {
 	t.Helper()
 	for _, kv := range attrs {
@@ -244,9 +257,7 @@ func TestPushConsumeTraceContext(t *testing.T) {
 		t.Fatal("Push Consume handler did not receive trace context")
 	}
 
-	spans := sr.Ended()
-	consumer := findSpanByNameAndKind(spans, "process "+"push.msg", oteltrace.SpanKindConsumer)
-	require.NotNil(t, consumer, "no push consumer span")
+	consumer := waitSpanByNameAndKind(t, sr, "process "+"push.msg", oteltrace.SpanKindConsumer)
 	assertAttr(t, consumer.Attributes(), "messaging.consumer.name", "push-consumer")
 }
 
@@ -425,9 +436,7 @@ func TestOrderedConsumerTraceContext(t *testing.T) {
 		t.Fatal("OrderedConsumer did not receive trace context")
 	}
 
-	spans := sr.Ended()
-	consumer := findSpanByNameAndKind(spans, "process ordered.msg", oteltrace.SpanKindConsumer)
-	require.NotNil(t, consumer, "no ordered consumer span")
+	consumer := waitSpanByNameAndKind(t, sr, "process ordered.msg", oteltrace.SpanKindConsumer)
 	assertAttr(t, consumer.Attributes(), "messaging.consumer.name", "ordered-test")
 }
 

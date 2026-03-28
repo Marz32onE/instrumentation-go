@@ -54,6 +54,28 @@ func findSpanByNameAndKind(spans []trace.ReadOnlySpan, name string, kind oteltra
 	return nil
 }
 
+// waitSpanByNameAndKind polls until the span is in Ended(); subscribe/consume use defer span.End()
+// after the handler returns, so reading sr.Ended() right after a done signal races (flaky under -race).
+func waitSpanByNameAndKind(t *testing.T, sr *tracetest.SpanRecorder, name string, kind oteltrace.SpanKind) trace.ReadOnlySpan {
+	t.Helper()
+	var got trace.ReadOnlySpan
+	require.Eventually(t, func() bool {
+		got = findSpanByNameAndKind(sr.Ended(), name, kind)
+		return got != nil
+	}, 2*time.Second, 5*time.Millisecond, "wait for ended span %q", name)
+	return got
+}
+
+func waitSpanByKind(t *testing.T, sr *tracetest.SpanRecorder, kind oteltrace.SpanKind) trace.ReadOnlySpan {
+	t.Helper()
+	var got trace.ReadOnlySpan
+	require.Eventually(t, func() bool {
+		got = findSpanByKind(sr.Ended(), kind)
+		return got != nil
+	}, 2*time.Second, 5*time.Millisecond, "wait for ended span kind %v", kind)
+	return got
+}
+
 func assertAttr(t *testing.T, attrs []attribute.KeyValue, key, want string) {
 	t.Helper()
 	for _, kv := range attrs {
@@ -174,10 +196,9 @@ func TestSubscribeExtractsTraceContext(t *testing.T) {
 		t.Fatal("timeout")
 	}
 
+	consumerSpan := waitSpanByKind(t, sr, oteltrace.SpanKindConsumer)
 	spans := sr.Ended()
 	producer := findSpanByKind(spans, oteltrace.SpanKindProducer)
-	consumerSpan := findSpanByKind(spans, oteltrace.SpanKindConsumer)
-	require.NotNil(t, consumerSpan, "no consumer span")
 	assert.Equal(t, "process "+subject, consumerSpan.Name())
 	if producer != nil {
 		require.Len(t, consumerSpan.Links(), 1, "consumer span should have 1 link to producer")
@@ -241,11 +262,8 @@ func TestSubscribeConsumerSpanLinkedToProducer(t *testing.T) {
 		t.Fatal("timeout")
 	}
 
-	spans := sr.Ended()
-	producer := findSpanByNameAndKind(spans, "send "+subject, oteltrace.SpanKindProducer)
-	consumer := findSpanByNameAndKind(spans, "process "+subject, oteltrace.SpanKindConsumer)
-	require.NotNil(t, producer, "missing producer span")
-	require.NotNil(t, consumer, "missing consumer span")
+	producer := waitSpanByNameAndKind(t, sr, "send "+subject, oteltrace.SpanKindProducer)
+	consumer := waitSpanByNameAndKind(t, sr, "process "+subject, oteltrace.SpanKindConsumer)
 	require.Len(t, consumer.Links(), 1, "consumer span should have 1 link to producer")
 	linkCtx := consumer.Links()[0].SpanContext
 	assert.Equal(t, producer.SpanContext().TraceID(), linkCtx.TraceID())
