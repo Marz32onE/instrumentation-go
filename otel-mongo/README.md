@@ -23,12 +23,12 @@ Both packages expose the same API surface (Client, Collection, Cursor, ContextFr
 otel-mongo/
 ├── otelmongo/           # MongoDB driver v1 wrapper (root module)
 │   ├── version.go, client.go, database.go, collection.go, cursor.go
-│   ├── tracing.go, semconv.go, bulkwrite.go, results.go
+│   ├── tracing.go, semconv.go, bulkwrite.go, results.go, filter_exporter.go
 │   └── ...
 ├── v2/                  # MongoDB driver v2 wrapper (separate module, import .../v2)
 │   ├── go.mod           # module .../otel-mongo/v2, requires go.mongodb.org/mongo-driver/v2
 │   ├── version.go, client.go, database.go, collection.go, cursor.go
-│   ├── tracing.go, semconv.go, bulkwrite.go, results.go
+│   ├── tracing.go, semconv.go, bulkwrite.go, results.go, filter_exporter.go
 │   └── *_test.go
 ├── example/             # TracerProvider + global + otelmongo (uses v2)
 └── README.md
@@ -99,6 +99,28 @@ otel.SetTracerProvider(trace.NewTracerProvider())
 client, err := otelmongo.Connect(opts)
 ```
 
+### 5. Reduce noisy driver spans (e.g. `getMore`)
+
+The MongoDB driver monitor (`contrib otelmongo.NewMonitor`) emits command spans for all operations, including frequent cursor operations like `getMore`.
+
+Use `SkipDBOperationsExporter` to drop selected DB operation spans before export:
+
+```go
+exp, err := otlptracegrpc.New(ctx, otlptracegrpc.WithEndpoint(endpoint), otlptracegrpc.WithInsecure())
+if err != nil { log.Fatal(err) }
+
+// Drop db.operation.name in skip list (case-insensitive).
+exp = otelmongo.SkipDBOperationsExporter(exp, []string{"getMore"})
+
+tp := sdktrace.NewTracerProvider(
+    sdktrace.WithBatcher(exp),
+    sdktrace.WithResource(res),
+)
+otel.SetTracerProvider(tp)
+```
+
+This only filters exported spans; client CRUD behavior and `_oteltrace` propagation are unchanged.
+
 ---
 
 ## API summary
@@ -109,6 +131,48 @@ client, err := otelmongo.Connect(opts)
 | **NewClient** | Same; accepts optional **WithTracerProvider**, **WithPropagators**. |
 | **ContextFromDocument** | Restores trace context from document’s `_oteltrace` (e.g. for change streams). |
 | **ScopeName / Version()** | Used when creating Tracer (OTel contrib guideline). |
+| **SkipDBOperationsExporter** | Wraps a `SpanExporter`; drops spans whose `db.operation.name` is in the skip list (export-only). |
+
+---
+
+## Deliver Spans (Service Graph)
+
+When `OTEL_EXPORTER_OTLP_ENDPOINT` is set, otelmongo creates synthetic "deliver" spans representing MongoDB as a broker node in Grafana service graph. Both `Connect` and `NewClient` support this — the server address is parsed from the URI provided via `options.Client().ApplyURI(uri)`.
+
+The endpoint must be a **full URL** for HTTP (e.g. `http://otel-collector:4318`) or **host:port** for gRPC (e.g. `otel-collector:4317`). Bare hostnames without scheme or port are not supported.
+
+### Producer-side (write path)
+
+```
+InsertOne (CLIENT, api)
+  └── db.coll deliver (CONSUMER, mongodb)  ← injected into _oteltrace
+```
+
+### Consumer-side (change stream path)
+
+```
+db.coll deliver (PRODUCER, mongodb)  ← links to producer deliver
+  └── watch coll (CONSUMER, dbwatcher) ← child of deliver
+```
+
+### Resulting service graph
+
+```
+api ──► mongodb ──► dbwatcher
+```
+
+---
+
+## v1 vs v2 API Differences
+
+| Difference | v1 (`otelmongo`) | v2 (`.../v2`) |
+|------------|------------------|---------------|
+| `Connect` signature | `Connect(ctx, opts...)` | `Connect(opts...)` |
+| `NewClient` signature | `NewClient(ctx, uri, traceOpts...)` | `NewClient(uri, traceOpts...)` |
+| `Distinct` return | `([]interface{}, error)` | `*mongo.DistinctResult` |
+| `StartSession` return | `mongo.Session, error` | `*mongo.Session, error` |
+| `Cursor.DecodeWithContext` | Creates INTERNAL span + new TraceID | Pure context enrichment (no extra span) |
+| `Connect` server address | Not parsed (no `server.address` attribute) | Auto-parses URI |
 
 ---
 
@@ -137,6 +201,27 @@ Every `InsertOne`, `InsertMany`, `ReplaceOne`, and `UpdateOne`/`UpdateMany`/`Upd
 ### Span links on FindOne
 
 `SingleResult.Decode` adds a **span link** (not a parent-child relationship) to the `_oteltrace` stored in the fetched document. The FindOne span ends when `Decode`, `Raw`, or `TraceContext` is first called. Call exactly one of these per `SingleResult`.
+
+---
+
+## Diagnostic logging
+
+Uses [`log/slog`](https://pkg.go.dev/log/slog) — no output by default.
+
+| Level | Events |
+|-------|--------|
+| `DEBUG` | Deliver tracer initialised successfully (logs `service` and `endpoint`) |
+| `WARN` | OTLP exporter creation failure; resource creation failure |
+
+Enable with a debug-level slog handler at startup:
+
+```go
+slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+    Level: slog.LevelDebug,
+})))
+```
+
+Log entries use the `otelmongo:` prefix with `error`, `reason`, `service`, and `endpoint` key-value pairs.
 
 ---
 

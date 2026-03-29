@@ -3,6 +3,7 @@ package oteljetstream_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
@@ -184,4 +185,115 @@ func TestJetStreamDeleteStream(t *testing.T) {
 
 	_, err = js.Stream(ctx, streamName)
 	require.Error(t, err)
+}
+
+func TestStreamConsumerManagerParityMethods(t *testing.T) {
+	url := startJetStreamServer(t)
+	otel.SetTracerProvider(trace.NewTracerProvider())
+	conn, err := otelnats.Connect(url, nil)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	js, err := oteljetstream.New(conn)
+	require.NoError(t, err)
+	ctx := context.Background()
+	streamName := "STREAMMGRPARITY"
+	_, err = js.CreateOrUpdateStream(ctx, oteljetstream.StreamConfig{
+		Name:     streamName,
+		Subjects: []string{"streammgr.>"},
+	})
+	require.NoError(t, err)
+
+	stream, err := js.Stream(ctx, streamName)
+	require.NoError(t, err)
+
+	_, err = stream.CreateOrUpdateConsumer(ctx, oteljetstream.ConsumerConfig{
+		Durable:       "stream-mgr",
+		FilterSubject: "streammgr.a",
+		AckPolicy:     oteljetstream.AckExplicitPolicy,
+	})
+	require.NoError(t, err)
+
+	_, err = stream.UpdateConsumer(ctx, oteljetstream.ConsumerConfig{
+		Durable:       "stream-mgr",
+		FilterSubject: "streammgr.a",
+		AckPolicy:     oteljetstream.AckExplicitPolicy,
+		Description:   "updated by stream.UpdateConsumer",
+	})
+	require.NoError(t, err)
+
+	lister := stream.ListConsumers(ctx)
+	var seen []string
+	for info := range lister.Info() {
+		if info != nil {
+			seen = append(seen, info.Name)
+		}
+	}
+	require.NoError(t, lister.Err())
+	require.Contains(t, seen, "stream-mgr")
+
+	_, err = stream.PauseConsumer(ctx, "stream-mgr", time.Now().Add(2*time.Second))
+	require.NoError(t, err)
+	_, err = stream.ResumeConsumer(ctx, "stream-mgr")
+	require.NoError(t, err)
+
+	err = stream.UnpinConsumer(ctx, "stream-mgr", "non-existing-group")
+	require.Error(t, err)
+}
+
+func TestJetStreamStreamConsumerManagerParityMethods(t *testing.T) {
+	url := startJetStreamServer(t)
+	otel.SetTracerProvider(trace.NewTracerProvider())
+	conn, err := otelnats.Connect(url, nil)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	js, err := oteljetstream.New(conn)
+	require.NoError(t, err)
+	ctx := context.Background()
+	streamName := "JSMGRPARITY"
+	_, err = js.CreateOrUpdateStream(ctx, oteljetstream.StreamConfig{
+		Name:     streamName,
+		Subjects: []string{"jsmgr.>"},
+	})
+	require.NoError(t, err)
+
+	_, err = js.CreateConsumer(ctx, streamName, oteljetstream.ConsumerConfig{
+		Durable:       "js-create",
+		FilterSubject: "jsmgr.a",
+		AckPolicy:     oteljetstream.AckExplicitPolicy,
+	})
+	require.NoError(t, err)
+
+	_, err = js.CreateOrUpdateConsumer(ctx, streamName, oteljetstream.ConsumerConfig{
+		Durable:       "js-upsert",
+		FilterSubject: "jsmgr.b",
+		AckPolicy:     oteljetstream.AckExplicitPolicy,
+	})
+	require.NoError(t, err)
+
+	_, err = js.UpdateConsumer(ctx, streamName, oteljetstream.ConsumerConfig{
+		Durable:       "js-upsert",
+		FilterSubject: "jsmgr.b",
+		AckPolicy:     oteljetstream.AckExplicitPolicy,
+		Description:   "updated by js.UpdateConsumer",
+	})
+	require.NoError(t, err)
+
+	cons, err := js.Consumer(ctx, streamName, "js-upsert")
+	require.NoError(t, err)
+	require.NotNil(t, cons)
+
+	_, err = js.OrderedConsumer(ctx, streamName, oteljetstream.OrderedConsumerConfig{
+		FilterSubjects: []string{"jsmgr.b"},
+	})
+	require.NoError(t, err)
+
+	_, err = js.PauseConsumer(ctx, streamName, "js-upsert", time.Now().Add(2*time.Second))
+	require.NoError(t, err)
+	_, err = js.ResumeConsumer(ctx, streamName, "js-upsert")
+	require.NoError(t, err)
+
+	err = js.DeleteConsumer(ctx, streamName, "js-create")
+	require.NoError(t, err)
 }

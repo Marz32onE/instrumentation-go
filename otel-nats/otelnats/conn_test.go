@@ -45,6 +45,37 @@ func findSpanByKind(spans []trace.ReadOnlySpan, kind oteltrace.SpanKind) trace.R
 	return nil
 }
 
+func findSpanByNameAndKind(spans []trace.ReadOnlySpan, name string, kind oteltrace.SpanKind) trace.ReadOnlySpan {
+	for _, s := range spans {
+		if s.Name() == name && s.SpanKind() == kind {
+			return s
+		}
+	}
+	return nil
+}
+
+// waitSpanByNameAndKind polls until the span is in Ended(); subscribe/consume use defer span.End()
+// after the handler returns, so reading sr.Ended() right after a done signal races (flaky under -race).
+func waitSpanByNameAndKind(t *testing.T, sr *tracetest.SpanRecorder, name string, kind oteltrace.SpanKind) trace.ReadOnlySpan {
+	t.Helper()
+	var got trace.ReadOnlySpan
+	require.Eventually(t, func() bool {
+		got = findSpanByNameAndKind(sr.Ended(), name, kind)
+		return got != nil
+	}, 2*time.Second, 5*time.Millisecond, "wait for ended span %q", name)
+	return got
+}
+
+func waitSpanByKind(t *testing.T, sr *tracetest.SpanRecorder, kind oteltrace.SpanKind) trace.ReadOnlySpan {
+	t.Helper()
+	var got trace.ReadOnlySpan
+	require.Eventually(t, func() bool {
+		got = findSpanByKind(sr.Ended(), kind)
+		return got != nil
+	}, 2*time.Second, 5*time.Millisecond, "wait for ended span kind %v", kind)
+	return got
+}
+
 func assertAttr(t *testing.T, attrs []attribute.KeyValue, key, want string) {
 	t.Helper()
 	for _, kv := range attrs {
@@ -165,10 +196,9 @@ func TestSubscribeExtractsTraceContext(t *testing.T) {
 		t.Fatal("timeout")
 	}
 
+	consumerSpan := waitSpanByKind(t, sr, oteltrace.SpanKindConsumer)
 	spans := sr.Ended()
 	producer := findSpanByKind(spans, oteltrace.SpanKindProducer)
-	consumerSpan := findSpanByKind(spans, oteltrace.SpanKindConsumer)
-	require.NotNil(t, consumerSpan, "no consumer span")
 	assert.Equal(t, "process "+subject, consumerSpan.Name())
 	if producer != nil {
 		require.Len(t, consumerSpan.Links(), 1, "consumer span should have 1 link to producer")
@@ -232,11 +262,8 @@ func TestSubscribeConsumerSpanLinkedToProducer(t *testing.T) {
 		t.Fatal("timeout")
 	}
 
-	spans := sr.Ended()
-	producer := findSpanByKind(spans, oteltrace.SpanKindProducer)
-	consumer := findSpanByKind(spans, oteltrace.SpanKindConsumer)
-	require.NotNil(t, producer, "missing producer span")
-	require.NotNil(t, consumer, "missing consumer span")
+	producer := waitSpanByNameAndKind(t, sr, "send "+subject, oteltrace.SpanKindProducer)
+	consumer := waitSpanByNameAndKind(t, sr, "process "+subject, oteltrace.SpanKindConsumer)
 	require.Len(t, consumer.Links(), 1, "consumer span should have 1 link to producer")
 	linkCtx := consumer.Links()[0].SpanContext
 	assert.Equal(t, producer.SpanContext().TraceID(), linkCtx.TraceID())
@@ -278,4 +305,104 @@ func TestTraceContextReturnsTracerAndPropagator(t *testing.T) {
 	tracer, prop := conn.TraceContext()
 	assert.NotNil(t, tracer, "TraceContext() tracer should not be nil")
 	assert.NotNil(t, prop, "TraceContext() propagator should not be nil")
+}
+
+func TestDeliverSpanDisabledWithoutEndpoint(t *testing.T) {
+	// Ensure OTEL_EXPORTER_OTLP_ENDPOINT is unset — deliver span should be disabled.
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	url := startServer(t)
+	tp, sr := newTestProvider()
+	prop := propagation.NewCompositeTextMapPropagator(propagation.TraceContext{})
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(prop)
+
+	conn, err := otelnats.Connect(url, nil)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	assert.False(t, conn.DeliverSpanEnabled(), "deliver span should be disabled without endpoint")
+
+	subject := "test.nodeliver"
+	done := make(chan struct{}, 1)
+	_, err = conn.Subscribe(subject, func(m otelnats.MsgWithContext) {
+		done <- struct{}{}
+	})
+	require.NoError(t, err)
+
+	err = conn.Publish(context.Background(), subject, []byte("ping"))
+	require.NoError(t, err)
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout")
+	}
+
+	// Allow spans to settle
+	require.Eventually(t, func() bool {
+		return len(sr.Ended()) >= 2
+	}, 2*time.Second, 10*time.Millisecond)
+
+	spans := sr.Ended()
+	// Should have exactly 2 spans: producer + consumer (no deliver span)
+	require.Len(t, spans, 2, "expected producer + consumer only, no deliver span")
+	producer := findSpanByKind(spans, oteltrace.SpanKindProducer)
+	consumer := findSpanByKind(spans, oteltrace.SpanKindConsumer)
+	require.NotNil(t, producer)
+	require.NotNil(t, consumer)
+	// Consumer link should point to producer span
+	require.Len(t, consumer.Links(), 1)
+	assert.Equal(t, producer.SpanContext().SpanID(), consumer.Links()[0].SpanContext.SpanID())
+}
+
+func TestDeliverSpanConsumerLinksToDeliverSpan(t *testing.T) {
+	// Set endpoint to enable deliver span. The exporter won't connect but spans still get created.
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4317")
+	url := startServer(t)
+	tp, sr := newTestProvider()
+	prop := propagation.NewCompositeTextMapPropagator(propagation.TraceContext{})
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(prop)
+
+	conn, err := otelnats.Connect(url, nil)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	assert.True(t, conn.DeliverSpanEnabled(), "deliver span should be enabled with endpoint")
+
+	subject := "test.deliver"
+	done := make(chan struct{}, 1)
+	_, err = conn.Subscribe(subject, func(m otelnats.MsgWithContext) {
+		done <- struct{}{}
+	})
+	require.NoError(t, err)
+
+	err = conn.Publish(context.Background(), subject, []byte("ping"))
+	require.NoError(t, err)
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout")
+	}
+
+	// Allow spans to settle
+	require.Eventually(t, func() bool {
+		return len(sr.Ended()) >= 2
+	}, 2*time.Second, 10*time.Millisecond)
+
+	spans := sr.Ended()
+	producer := findSpanByNameAndKind(spans, "send "+subject, oteltrace.SpanKindProducer)
+	consumer := findSpanByNameAndKind(spans, "process "+subject, oteltrace.SpanKindConsumer)
+	require.NotNil(t, producer, "missing producer span")
+	require.NotNil(t, consumer, "missing consumer span")
+
+	// Consumer link should NOT point to producer span (it should point to deliver span)
+	require.Len(t, consumer.Links(), 1, "consumer should have 1 link")
+	linkSpanID := consumer.Links()[0].SpanContext.SpanID()
+	assert.NotEqual(t, producer.SpanContext().SpanID(), linkSpanID,
+		"consumer link should point to deliver span, not producer span")
+	// The link should share the same traceID as the producer (deliver is child of producer)
+	assert.Equal(t, producer.SpanContext().TraceID(), consumer.Links()[0].SpanContext.TraceID(),
+		"deliver span should share traceID with producer")
 }

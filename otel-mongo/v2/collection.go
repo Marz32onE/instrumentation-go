@@ -6,6 +6,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -13,9 +14,10 @@ import (
 // extract OpenTelemetry trace contexts via the "_oteltrace" document field (uses otel globals).
 type Collection struct {
 	*mongo.Collection
-	tracer     trace.Tracer
-	serverAddr string
-	serverPort int
+	tracer        trace.Tracer
+	serverAddr    string
+	serverPort    int
+	deliverTracer trace.Tracer // nil when disabled
 }
 
 // NewCollection wraps an existing *mongo.Collection with trace propagation (tracer/propagator from otel globals).
@@ -23,7 +25,6 @@ func NewCollection(coll *mongo.Collection, tracer trace.Tracer) *Collection {
 	return &Collection{Collection: coll, tracer: tracer}
 }
 
-// dbAndColl returns the database name and collection name for semconv attributes.
 func (c *Collection) dbAndColl() (dbName, collName string) {
 	collName = c.Name()
 	if c.Database() != nil {
@@ -32,46 +33,89 @@ func (c *Collection) dbAndColl() (dbName, collName string) {
 	return dbName, collName
 }
 
-// InsertOne inserts document into the collection.
-// The active trace context from ctx is serialised into the document under the
-// "_oteltrace" field before the insert. otelmongo already creates the command span.
+// startDeliverSpan creates a synthetic CONSUMER span representing MongoDB broker delivery.
+// The returned context carries the deliver span, suitable for injecting into documents so
+// change stream consumers link to it. The caller must End the returned span after the
+// MongoDB operation completes. When deliverTracer is nil, returns a no-op span safe to End.
+func (c *Collection) startDeliverSpan(ctx context.Context, dbName, collName string) (context.Context, trace.Span) {
+	if c.deliverTracer == nil {
+		return ctx, trace.SpanFromContext(context.Background())
+	}
+	attrs := []attribute.KeyValue{
+		attribute.String(keyDBSystemName, dbSystemMongoDB),
+		attribute.String(keyDBCollection, collName),
+	}
+	if dbName != "" {
+		attrs = append(attrs, attribute.String(keyDBNamespace, dbName))
+	}
+	if c.serverAddr != "" {
+		attrs = append(attrs, attribute.String(keyServerAddress, c.serverAddr))
+		if c.serverPort > 0 && c.serverPort != 27017 {
+			attrs = append(attrs, attribute.Int(keyServerPort, c.serverPort))
+		}
+	}
+	deliverCtx, span := c.deliverTracer.Start(ctx,
+		dbName+"."+collName+" deliver",
+		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(attrs...),
+	)
+	return deliverCtx, span
+}
+
+// InsertOne inserts a document, injecting the deliver span traceparent into "_oteltrace".
 func (c *Collection) InsertOne(ctx context.Context, document any, opts ...options.Lister[options.InsertOneOptions]) (*InsertOneResult, error) {
-	docWithTrace, err := injectTraceIntoDocument(ctx, document)
+	dbName, collName := c.dbAndColl()
+	ctx, span := c.tracer.Start(ctx, dbSpanName("insert", collName),
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(dbAttributes(dbName, collName, "insert", 0, c.serverAddr, c.serverPort)...),
+	)
+	defer span.End()
+
+	injectCtx, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
+	defer deliverSpan.End()
+	docWithTrace, err := injectTraceIntoDocument(injectCtx, document)
 	if err != nil {
 		return nil, fmt.Errorf("otelmongo: inject trace: %w", err)
 	}
-	res, err := c.Collection.InsertOne(ctx, docWithTrace, opts...)
+	res, err := c.Collection.InsertOne(injectCtx, docWithTrace, opts...)
+	recordSpanError(span, err)
 	if err != nil {
 		return nil, err
 	}
 	return &InsertOneResult{res}, nil
 }
 
-// InsertMany inserts documents into the collection.
-// The active trace context from ctx is serialised into each document under the
-// "_oteltrace" field before the insert. otelmongo already creates the command span.
+// InsertMany inserts documents, injecting the deliver span traceparent into each "_oteltrace".
 func (c *Collection) InsertMany(ctx context.Context, documents []any, opts ...options.Lister[options.InsertManyOptions]) (*InsertManyResult, error) {
+	dbName, collName := c.dbAndColl()
+	ctx, span := c.tracer.Start(ctx, dbSpanName("insert", collName),
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(dbAttributes(dbName, collName, "insert", len(documents), c.serverAddr, c.serverPort)...),
+	)
+	defer span.End()
+
+	injectCtx, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
+	defer deliverSpan.End()
 	docsWithTrace := make([]any, 0, len(documents))
 	for _, doc := range documents {
-		d, err := injectTraceIntoDocument(ctx, doc)
+		d, err := injectTraceIntoDocument(injectCtx, doc)
 		if err != nil {
 			return nil, fmt.Errorf("otelmongo: inject trace: %w", err)
 		}
 		docsWithTrace = append(docsWithTrace, d)
 	}
-	res, err := c.Collection.InsertMany(ctx, docsWithTrace, opts...)
+	res, err := c.Collection.InsertMany(injectCtx, docsWithTrace, opts...)
+	recordSpanError(span, err)
 	if err != nil {
 		return nil, err
 	}
 	return &InsertManyResult{res}, nil
 }
 
-// Find executes a find command and returns a Cursor that can extract trace
-// contexts from returned documents. Span name/attrs follow OTel DB semconv.
+// Find executes a find command and returns a Cursor.
 func (c *Collection) Find(ctx context.Context, filter any, opts ...options.Lister[options.FindOptions]) (*Cursor, error) {
 	dbName, collName := c.dbAndColl()
-	spanName := dbSpanName("find", collName)
-	ctx, span := c.tracer.Start(ctx, spanName,
+	ctx, span := c.tracer.Start(ctx, dbSpanName("find", collName),
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(dbAttributes(dbName, collName, "find", 0, c.serverAddr, c.serverPort)...),
 	)
@@ -82,40 +126,39 @@ func (c *Collection) Find(ctx context.Context, filter any, opts ...options.Liste
 	if err != nil {
 		return nil, err
 	}
-	return &Cursor{Cursor: cursor, tracer: c.tracer, parentCtx: ctx}, nil
+	return &Cursor{Cursor: cursor, parentCtx: ctx}, nil
 }
 
 // FindOne executes a find command returning at most one document.
-// The returned *SingleResult carries the span; call Decode to end the span
-// and record a span link to the document's origin trace when present.
+// The span is held in the returned *SingleResult and ended when Decode is called.
 func (c *Collection) FindOne(ctx context.Context, filter any, opts ...options.Lister[options.FindOneOptions]) *SingleResult {
 	dbName, collName := c.dbAndColl()
-	spanName := dbSpanName("findOne", collName)
-	ctx, span := c.tracer.Start(ctx, spanName,
+	ctx, span := c.tracer.Start(ctx, dbSpanName("find", collName),
 		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(dbAttributes(dbName, collName, "findOne", 0, c.serverAddr, c.serverPort)...),
+		trace.WithAttributes(dbAttributes(dbName, collName, "find", 0, c.serverAddr, c.serverPort)...),
 	)
 	sr := c.Collection.FindOne(ctx, filter, opts...)
 	return &SingleResult{SingleResult: sr, tracer: c.tracer, span: span, ctx: ctx}
 }
 
-// UpdateOne injects the current trace context into the update so the document's
-// _oteltrace is replaced. No extra read; one round-trip only. Span follows OTel DB semconv.
+// UpdateOne injects the current trace context into the update and replaces the document's _oteltrace.
 func (c *Collection) UpdateOne(ctx context.Context, filter any, update any, opts ...options.Lister[options.UpdateOneOptions]) (*UpdateResult, error) {
 	dbName, collName := c.dbAndColl()
-	spanName := dbSpanName("updateOne", collName)
-	ctx, span := c.tracer.Start(ctx, spanName,
+	ctx, span := c.tracer.Start(ctx, dbSpanName("update", collName),
 		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(dbAttributes(dbName, collName, "updateOne", 0, c.serverAddr, c.serverPort)...),
+		trace.WithAttributes(dbAttributes(dbName, collName, "update", 0, c.serverAddr, c.serverPort)...),
 	)
 	defer span.End()
 
-	updateWithTrace, err := injectTraceIntoUpdate(ctx, update)
+	injectCtx, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
+	defer deliverSpan.End()
+	updateWithTrace, err := injectTraceIntoUpdate(injectCtx, update)
 	if err != nil {
+		span.AddEvent("otelmongo.trace_inject_failed",
+			trace.WithAttributes(attribute.String("error.message", err.Error())))
 		updateWithTrace = update
 	}
-
-	res, err := c.Collection.UpdateOne(ctx, filter, updateWithTrace, opts...)
+	res, err := c.Collection.UpdateOne(injectCtx, filter, updateWithTrace, opts...)
 	recordSpanError(span, err)
 	if err != nil {
 		return nil, err
@@ -123,21 +166,24 @@ func (c *Collection) UpdateOne(ctx context.Context, filter any, update any, opts
 	return &UpdateResult{res}, nil
 }
 
-// UpdateMany injects the current trace context into the update so matched
-// documents record the most recent writer's trace. No per-document origin
-// read (batch). Span follows OTel DB semconv.
+// UpdateMany injects the current trace context into the update for all matched documents.
 func (c *Collection) UpdateMany(ctx context.Context, filter any, update any, opts ...options.Lister[options.UpdateManyOptions]) (*UpdateResult, error) {
 	dbName, collName := c.dbAndColl()
-	spanName := dbSpanName("updateMany", collName)
-	ctx, span := c.tracer.Start(ctx, spanName,
+	ctx, span := c.tracer.Start(ctx, dbSpanName("update", collName),
 		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(dbAttributes(dbName, collName, "updateMany", 0, c.serverAddr, c.serverPort)...),
+		trace.WithAttributes(dbAttributes(dbName, collName, "update", 0, c.serverAddr, c.serverPort)...),
 	)
 	defer span.End()
 
-	updateWithTrace, _ := injectTraceIntoUpdate(ctx, update)
-
-	res, err := c.Collection.UpdateMany(ctx, filter, updateWithTrace, opts...)
+	injectCtx, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
+	defer deliverSpan.End()
+	updateWithTrace, err := injectTraceIntoUpdate(injectCtx, update)
+	if err != nil {
+		span.AddEvent("otelmongo.trace_inject_failed",
+			trace.WithAttributes(attribute.String("error.message", err.Error())))
+		updateWithTrace = update
+	}
+	res, err := c.Collection.UpdateMany(injectCtx, filter, updateWithTrace, opts...)
 	recordSpanError(span, err)
 	if err != nil {
 		return nil, err
@@ -146,27 +192,34 @@ func (c *Collection) UpdateMany(ctx context.Context, filter any, update any, opt
 }
 
 // ReplaceOne injects the current trace context into the replacement document.
-// otelmongo already creates the command span.
 func (c *Collection) ReplaceOne(ctx context.Context, filter any, replacement any, opts ...options.Lister[options.ReplaceOptions]) (*UpdateResult, error) {
-	replacementWithTrace, err := injectTraceIntoDocument(ctx, replacement)
+	dbName, collName := c.dbAndColl()
+	ctx, span := c.tracer.Start(ctx, dbSpanName("update", collName),
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(dbAttributes(dbName, collName, "update", 0, c.serverAddr, c.serverPort)...),
+	)
+	defer span.End()
+
+	injectCtx, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
+	defer deliverSpan.End()
+	replacementWithTrace, err := injectTraceIntoDocument(injectCtx, replacement)
 	if err != nil {
 		return nil, fmt.Errorf("otelmongo: inject trace: %w", err)
 	}
-	res, err := c.Collection.ReplaceOne(ctx, filter, replacementWithTrace, opts...)
+	res, err := c.Collection.ReplaceOne(injectCtx, filter, replacementWithTrace, opts...)
+	recordSpanError(span, err)
 	if err != nil {
 		return nil, err
 	}
 	return &UpdateResult{res}, nil
 }
 
-// DeleteOne deletes one document. No extra read; one round-trip only.
-// Span follows OTel DB semconv.
+// DeleteOne deletes one matching document.
 func (c *Collection) DeleteOne(ctx context.Context, filter any, opts ...options.Lister[options.DeleteOneOptions]) (*DeleteResult, error) {
 	dbName, collName := c.dbAndColl()
-	spanName := dbSpanName("deleteOne", collName)
-	ctx, span := c.tracer.Start(ctx, spanName,
+	ctx, span := c.tracer.Start(ctx, dbSpanName("delete", collName),
 		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(dbAttributes(dbName, collName, "deleteOne", 0, c.serverAddr, c.serverPort)...),
+		trace.WithAttributes(dbAttributes(dbName, collName, "delete", 0, c.serverAddr, c.serverPort)...),
 	)
 	defer span.End()
 
@@ -178,14 +231,12 @@ func (c *Collection) DeleteOne(ctx context.Context, filter any, opts ...options.
 	return &DeleteResult{res}, nil
 }
 
-// DeleteMany executes a delete command against all documents matching filter.
-// Span follows OTel DB semconv. No per-document origin read (batch).
+// DeleteMany deletes all documents matching filter.
 func (c *Collection) DeleteMany(ctx context.Context, filter any, opts ...options.Lister[options.DeleteManyOptions]) (*DeleteResult, error) {
 	dbName, collName := c.dbAndColl()
-	spanName := dbSpanName("deleteMany", collName)
-	ctx, span := c.tracer.Start(ctx, spanName,
+	ctx, span := c.tracer.Start(ctx, dbSpanName("delete", collName),
 		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(dbAttributes(dbName, collName, "deleteMany", 0, c.serverAddr, c.serverPort)...),
+		trace.WithAttributes(dbAttributes(dbName, collName, "delete", 0, c.serverAddr, c.serverPort)...),
 	)
 	defer span.End()
 
@@ -197,13 +248,12 @@ func (c *Collection) DeleteMany(ctx context.Context, filter any, opts ...options
 	return &DeleteResult{res}, nil
 }
 
-// CountDocuments counts documents matching filter. Span follows OTel DB semconv (read-only, no _oteltrace).
+// CountDocuments counts documents matching filter.
 func (c *Collection) CountDocuments(ctx context.Context, filter any, opts ...options.Lister[options.CountOptions]) (int64, error) {
 	dbName, collName := c.dbAndColl()
-	spanName := dbSpanName("countDocuments", collName)
-	ctx, span := c.tracer.Start(ctx, spanName,
+	ctx, span := c.tracer.Start(ctx, dbSpanName("aggregate", collName),
 		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(dbAttributes(dbName, collName, "countDocuments", 0, c.serverAddr, c.serverPort)...),
+		trace.WithAttributes(dbAttributes(dbName, collName, "aggregate", 0, c.serverAddr, c.serverPort)...),
 	)
 	defer span.End()
 
@@ -212,27 +262,22 @@ func (c *Collection) CountDocuments(ctx context.Context, filter any, opts ...opt
 	return n, err
 }
 
-// Distinct returns distinct values for fieldName. Span follows OTel DB semconv (read-only).
-// Call the result's Err() after decoding to check for errors.
+// Distinct returns distinct values for fieldName.
 func (c *Collection) Distinct(ctx context.Context, fieldName string, filter any, opts ...options.Lister[options.DistinctOptions]) *mongo.DistinctResult {
 	dbName, collName := c.dbAndColl()
-	spanName := dbSpanName("distinct", collName)
-	ctx, span := c.tracer.Start(ctx, spanName,
+	ctx, span := c.tracer.Start(ctx, dbSpanName("distinct", collName),
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(dbAttributes(dbName, collName, "distinct", 0, c.serverAddr, c.serverPort)...),
 	)
 	defer span.End()
 
-	res := c.Collection.Distinct(ctx, fieldName, filter, opts...)
-	return res
+	return c.Collection.Distinct(ctx, fieldName, filter, opts...)
 }
 
-// Aggregate runs an aggregation pipeline and returns a Cursor that supports
-// DecodeWithContext for document trace propagation. Span follows OTel DB semconv.
+// Aggregate runs an aggregation pipeline and returns a Cursor.
 func (c *Collection) Aggregate(ctx context.Context, pipeline any, opts ...options.Lister[options.AggregateOptions]) (*Cursor, error) {
 	dbName, collName := c.dbAndColl()
-	spanName := dbSpanName("aggregate", collName)
-	ctx, span := c.tracer.Start(ctx, spanName,
+	ctx, span := c.tracer.Start(ctx, dbSpanName("aggregate", collName),
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(dbAttributes(dbName, collName, "aggregate", 0, c.serverAddr, c.serverPort)...),
 	)
@@ -243,22 +288,27 @@ func (c *Collection) Aggregate(ctx context.Context, pipeline any, opts ...option
 	if err != nil {
 		return nil, err
 	}
-	return &Cursor{Cursor: cursor, tracer: c.tracer, parentCtx: ctx}, nil
+	return &Cursor{Cursor: cursor, parentCtx: ctx}, nil
 }
 
-// UpdateByID updates one document by _id. Injects current trace into update
-// (document _oteltrace is replaced). Span follows OTel DB semconv.
+// UpdateByID updates one document by _id, injecting the current trace into the update.
 func (c *Collection) UpdateByID(ctx context.Context, id any, update any, opts ...options.Lister[options.UpdateOneOptions]) (*UpdateResult, error) {
 	dbName, collName := c.dbAndColl()
-	spanName := dbSpanName("updateOne", collName)
-	ctx, span := c.tracer.Start(ctx, spanName,
+	ctx, span := c.tracer.Start(ctx, dbSpanName("update", collName),
 		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(dbAttributes(dbName, collName, "updateOne", 0, c.serverAddr, c.serverPort)...),
+		trace.WithAttributes(dbAttributes(dbName, collName, "update", 0, c.serverAddr, c.serverPort)...),
 	)
 	defer span.End()
 
-	updateWithTrace, _ := injectTraceIntoUpdate(ctx, update)
-	res, err := c.Collection.UpdateByID(ctx, id, updateWithTrace, opts...)
+	injectCtx, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
+	defer deliverSpan.End()
+	updateWithTrace, err := injectTraceIntoUpdate(injectCtx, update)
+	if err != nil {
+		span.AddEvent("otelmongo.trace_inject_failed",
+			trace.WithAttributes(attribute.String("error.message", err.Error())))
+		updateWithTrace = update
+	}
+	res, err := c.Collection.UpdateByID(injectCtx, id, updateWithTrace, opts...)
 	recordSpanError(span, err)
 	if err != nil {
 		return nil, err
@@ -266,40 +316,38 @@ func (c *Collection) UpdateByID(ctx context.Context, id any, update any, opts ..
 	return &UpdateResult{res}, nil
 }
 
-// DeleteOneByID deletes one document by _id. Span follows OTel DB semconv (no _oteltrace on delete).
+// DeleteOneByID deletes one document by _id.
 func (c *Collection) DeleteOneByID(ctx context.Context, id any, opts ...options.Lister[options.DeleteOneOptions]) (*DeleteResult, error) {
 	return c.DeleteOne(ctx, map[string]any{"_id": id}, opts...)
 }
 
 // FindOneByID returns a SingleResult for the document with the given _id.
-// Decode or TraceContext to get span link from document's _oteltrace when present.
 func (c *Collection) FindOneByID(ctx context.Context, id any, opts ...options.Lister[options.FindOneOptions]) *SingleResult {
 	return c.FindOne(ctx, map[string]any{"_id": id}, opts...)
 }
 
-// FindByIDs returns a Cursor over documents whose _id is in the given ids slice.
-// Use Cursor.DecodeWithContext for trace propagation from each document's _oteltrace.
+// FindByIDs returns a Cursor over documents whose _id is in ids.
 func (c *Collection) FindByIDs(ctx context.Context, ids []any, opts ...options.Lister[options.FindOptions]) (*Cursor, error) {
 	return c.Find(ctx, map[string]any{"_id": map[string]any{"$in": ids}}, opts...)
 }
 
-// BulkWrite runs multiple write operations. Span follows OTel DB semconv.
-// _oteltrace is injected into InsertOneModel, UpdateOneModel, and UpdateManyModel.
+// BulkWrite runs multiple write operations, injecting trace context into write models.
 func (c *Collection) BulkWrite(ctx context.Context, models []mongo.WriteModel, opts ...options.Lister[options.BulkWriteOptions]) (*BulkWriteResult, error) {
 	dbName, collName := c.dbAndColl()
-	spanName := dbSpanName("bulkWrite", collName)
-	ctx, span := c.tracer.Start(ctx, spanName,
+	ctx, span := c.tracer.Start(ctx, dbSpanName("bulkWrite", collName),
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(dbAttributes(dbName, collName, "bulkWrite", len(models), c.serverAddr, c.serverPort)...),
 	)
 	defer span.End()
 
-	injected, err := buildBulkWriteModelsWithTrace(ctx, models)
+	injectCtx, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
+	defer deliverSpan.End()
+	injected, err := buildBulkWriteModelsWithTrace(injectCtx, models)
 	if err != nil {
 		recordSpanError(span, err)
 		return nil, err
 	}
-	res, err := c.Collection.BulkWrite(ctx, injected, opts...)
+	res, err := c.Collection.BulkWrite(injectCtx, injected, opts...)
 	recordSpanError(span, err)
 	if err != nil {
 		return nil, err
@@ -307,14 +355,13 @@ func (c *Collection) BulkWrite(ctx context.Context, models []mongo.WriteModel, o
 	return &BulkWriteResult{res}, nil
 }
 
-// Watch starts a change stream. Use ContextFromDocument(ctx, event.FullDocument) to
-// restore trace context from fullDocument. Span follows OTel DB semconv.
+// Watch starts a change stream on the collection.
 func (c *Collection) Watch(ctx context.Context, pipeline any, opts ...options.Lister[options.ChangeStreamOptions]) (*ChangeStream, error) {
 	dbName, collName := c.dbAndColl()
-	spanName := dbSpanName("watch", collName)
+	spanName := dbSpanName("aggregate", collName)
 	ctx, span := c.tracer.Start(ctx, spanName,
 		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(dbAttributes(dbName, collName, "watch", 0, c.serverAddr, c.serverPort)...),
+		trace.WithAttributes(dbAttributes(dbName, collName, "aggregate", 0, c.serverAddr, c.serverPort)...),
 	)
 	defer span.End()
 
@@ -323,5 +370,29 @@ func (c *Collection) Watch(ctx context.Context, pipeline any, opts ...options.Li
 	if err != nil {
 		return nil, err
 	}
-	return &ChangeStream{cs}, nil
+	baseSpanOpts := []trace.SpanStartOption{
+		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(dbAttributes(dbName, collName, "aggregate", 0, c.serverAddr, c.serverPort)...),
+	}
+	deliverAttrs := []attribute.KeyValue{
+		attribute.String(keyDBSystemName, dbSystemMongoDB),
+		attribute.String(keyDBCollection, collName),
+	}
+	if dbName != "" {
+		deliverAttrs = append(deliverAttrs, attribute.String(keyDBNamespace, dbName))
+	}
+	if c.serverAddr != "" {
+		deliverAttrs = append(deliverAttrs, attribute.String(keyServerAddress, c.serverAddr))
+		if c.serverPort > 0 && c.serverPort != 27017 {
+			deliverAttrs = append(deliverAttrs, attribute.Int(keyServerPort, c.serverPort))
+		}
+	}
+	return &ChangeStream{
+		ChangeStream:    cs,
+		spanName:        spanName,
+		baseSpanOpts:    baseSpanOpts,
+		deliverTracer:   c.deliverTracer,
+		deliverSpanName: dbName + "." + collName + " deliver",
+		deliverAttrs:    deliverAttrs,
+	}, nil
 }

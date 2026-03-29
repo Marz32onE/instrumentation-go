@@ -6,21 +6,21 @@ OpenTelemetry instrumentation packages for NATS, MongoDB, and WebSocket, aligned
 
 | Package | Import path | Version | Description |
 |---------|-------------|---------|-------------|
-| **otel-mongo** (v1) | `github.com/Marz32onE/instrumentation-go/otel-mongo/otelmongo` | 0.1.1 | MongoDB driver v1 wrapper; `_oteltrace` in documents, ContextFromDocument, BulkWrite. |
-| **otel-mongo/v2** | `github.com/Marz32onE/instrumentation-go/otel-mongo/v2` | 0.1.1 | MongoDB driver v2 wrapper; same API as v1. |
-| **otel-nats** | `github.com/Marz32onE/instrumentation-go/otel-nats/otelnats` | 0.1.1 | Core NATS connection, Publish, Subscribe (W3C trace in headers). |
-| **otel-nats** | `github.com/Marz32onE/instrumentation-go/otel-nats/oteljetstream` | 0.1.1 | JetStream streams, consumers, Publish, Consume, Messages, Fetch. |
-| **otel-websocket** | `github.com/Marz32onE/instrumentation-go/otel-websocket` | 0.1.1 | WebSocket trace-context propagation (JSON envelope in message body). |
+| **otel-mongo** (v1) | `github.com/Marz32onE/instrumentation-go/otel-mongo/otelmongo` | 0.2.3 | MongoDB driver v1 wrapper; `_oteltrace` in documents, ContextFromDocument, BulkWrite; deliver spans for service graph. |
+| **otel-mongo/v2** | `github.com/Marz32onE/instrumentation-go/otel-mongo/v2` | 0.2.2 | MongoDB driver v2 wrapper; same API as v1; deliver spans for service graph. |
+| **otel-nats** | `github.com/Marz32onE/instrumentation-go/otel-nats/otelnats` | 0.1.5 | Core NATS connection, Publish, Subscribe (W3C trace in headers); deliver spans for service graph. |
+| **otel-nats** | `github.com/Marz32onE/instrumentation-go/otel-nats/oteljetstream` | 0.1.5 | JetStream streams, consumers, Publish, Consume, Messages, Fetch; deliver spans for service graph. |
+| **otel-gorilla-ws** | `github.com/Marz32onE/instrumentation-go/otel-gorilla-ws` | 0.1.1 | gorilla/websocket trace-context propagation (JSON envelope in message body). |
 
 ## Install
 
 Each module is tagged separately. Use the matching tag with `go get`:
 
 ```bash
-go get github.com/Marz32onE/instrumentation-go/otel-mongo@otel-mongo/v0.1.1
-go get github.com/Marz32onE/instrumentation-go/otel-mongo/v2@otel-mongo/v2/v0.1.1
-go get github.com/Marz32onE/instrumentation-go/otel-nats@otel-nats/v0.1.1
-go get github.com/Marz32onE/instrumentation-go/otel-websocket@otel-websocket/v0.1.1
+go get github.com/Marz32onE/instrumentation-go/otel-mongo@otel-mongo/v0.2.3
+go get github.com/Marz32onE/instrumentation-go/otel-mongo/v2@otel-mongo/v2/v0.2.2
+go get github.com/Marz32onE/instrumentation-go/otel-nats@otel-nats/v0.1.5
+go get github.com/Marz32onE/instrumentation-go/otel-gorilla-ws@otel-gorilla-ws/v0.1.1
 ```
 
 Then import the subpackages in your code (e.g. `.../otel-mongo/otelmongo`, `.../otel-nats/otelnats`).
@@ -40,7 +40,7 @@ instrumentation-go/
 │   ├── example/
 │   ├── go.mod
 │   └── README.md
-├── otel-websocket/
+├── otel-gorilla-ws/
 │   ├── *.go            # Conn, NewConn, WriteMessage, ReadMessage, WithTracerProvider, WithPropagators
 │   ├── example/
 │   ├── go.mod
@@ -51,6 +51,40 @@ instrumentation-go/
 ## Usage pattern
 
 1. **Application** creates a TracerProvider (e.g. OTLP exporter), sets `otel.SetTracerProvider(tp)` and `otel.SetTextMapPropagator(prop)`, and defers shutdown.
-2. **Application** uses the instrumentation: `otelnats.Connect(url, nil)`, `otelmongo.Connect(opts)`, `otelwebsocket.NewConn(raw)`, etc. Options like `WithTracerProvider(tp)` override the global when needed.
+2. **Application** uses the instrumentation: `otelnats.Connect(url, nil)`, `otelmongo.Connect(opts)`, `otelgorillaws.NewConn(raw)`, etc. Options like `WithTracerProvider(tp)` override the global when needed.
 
-See **otel-nats/example**, **otel-mongo/example**, and **otel-websocket/example** for runnable examples.
+See **otel-nats/example**, **otel-mongo/example**, and **otel-gorilla-ws/example** for runnable examples.
+
+## Diagnostic logging
+
+All packages use [`log/slog`](https://pkg.go.dev/log/slog) for structured diagnostic output — no output by default (slog respects the default handler level).
+
+| Package | Level | Events logged |
+|---------|-------|---------------|
+| `otel-nats` | `DEBUG` | Server address parse failure, deliver tracer init success |
+| `otel-nats` | `WARN` | Deliver tracer init failure (OTLP endpoint missing or unreachable) |
+| `otel-mongo` | `DEBUG` | Deliver tracer init success |
+| `otel-mongo` | `WARN` | OTLP exporter creation failure, resource creation failure |
+
+To enable verbose output during development, configure the default slog handler:
+
+```go
+slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+    Level: slog.LevelDebug,
+})))
+```
+
+Log entries use a package prefix (`otelnats:`, `otelmongo:`) and key-value pairs (`reason`, `error`, `service`, `endpoint`) for easy filtering.
+
+---
+
+## `OTEL_EXPORTER_OTLP_ENDPOINT` format
+
+The deliver span feature (otel-mongo, otel-nats) reads `OTEL_EXPORTER_OTLP_ENDPOINT` to create an independent TracerProvider for synthetic broker spans. The endpoint value must be explicit:
+
+| Protocol | Format | Example |
+|----------|--------|---------|
+| OTLP/HTTP | Full URL with scheme | `http://otel-collector:4318` |
+| OTLP/gRPC | `host:port` (no scheme) | `otel-collector:4317` |
+
+Bare hostnames without scheme or port (e.g. `otel-collector`) are **not** supported — always include the scheme for HTTP or the port for gRPC.

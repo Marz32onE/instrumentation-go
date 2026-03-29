@@ -64,6 +64,28 @@ otel.SetTracerProvider(trace.NewTracerProvider())
 client, err := otelmongo.Connect(opts)
 ```
 
+### 5. 降低高頻 driver spans（例如 `getMore`）
+
+MongoDB driver monitor（`contrib otelmongo.NewMonitor`）會替所有 command 建立 span，包含游標常見的 `getMore`。
+
+可使用 `SkipDBOperationsExporter` 在 export 前過濾指定 DB 操作：
+
+```go
+exp, err := otlptracegrpc.New(ctx, otlptracegrpc.WithEndpoint(endpoint), otlptracegrpc.WithInsecure())
+if err != nil { log.Fatal(err) }
+
+// 過濾 db.operation.name（大小寫不敏感）
+exp = otelmongo.SkipDBOperationsExporter(exp, []string{"getMore"})
+
+tp := sdktrace.NewTracerProvider(
+    sdktrace.WithBatcher(exp),
+    sdktrace.WithResource(res),
+)
+otel.SetTracerProvider(tp)
+```
+
+此過濾只影響匯出的 spans，不改變 CRUD 行為與 `_oteltrace` 傳播機制。
+
 ---
 
 ## API 摘要
@@ -74,3 +96,4 @@ client, err := otelmongo.Connect(opts)
 | **NewClient** | 可選 **WithTracerProvider**、**WithPropagators**。 |
 | **ContextFromDocument** | 從文件的 `_oteltrace` 還原 trace context。 |
 | **ScopeName / Version()** | 建立 Tracer 時使用（OTel contrib 規範）。 |
+| **SkipDBOperationsExporter** | 包裝 `SpanExporter`，依 `db.operation.name` 略過匯出（僅影響匯出）。 |
