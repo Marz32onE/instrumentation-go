@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
@@ -28,6 +29,7 @@ func buildDocWithTrace(t *testing.T, ctx context.Context) bson.Raw { //nolint:re
 func TestCursorDecodeWithContext_ExtractsTrace(t *testing.T) {
 	sr := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+	otel.SetTracerProvider(tp)
 	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
 	tracer := tp.Tracer("test")
 
@@ -47,15 +49,30 @@ func TestCursorDecodeWithContext_ExtractsTrace(t *testing.T) {
 	c := &Cursor{Cursor: cursor, parentCtx: ctx}
 
 	var result bson.D
-	enriched, err := c.DecodeWithContext(context.Background(), &result)
+	_, err = c.DecodeWithContext(context.Background(), &result)
 	require.NoError(t, err)
 
-	recovered := trace.SpanContextFromContext(enriched)
-	assert.True(t, recovered.IsValid())
-	assert.Equal(t, originSpanCtx.TraceID(), recovered.TraceID())
+	// A mongo.cursor.decode span should be created with a link to the origin trace.
+	ended := sr.Ended()
+	var decodeSpan sdktrace.ReadOnlySpan
+	for _, s := range ended {
+		if s.Name() == "mongo.cursor.decode" {
+			decodeSpan = s
+			break
+		}
+	}
+	require.NotNil(t, decodeSpan, "mongo.cursor.decode span should have been created")
+	links := decodeSpan.Links()
+	require.NotEmpty(t, links, "expected link to origin trace")
+	assert.Equal(t, originSpanCtx.TraceID(), links[0].SpanContext.TraceID())
 }
 
 func TestCursorDecodeWithContext_NoTrace(t *testing.T) {
+	sr := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+
 	// Document without trace metadata.
 	raw, err := bson.Marshal(bson.D{{Key: "x", Value: 1}})
 	require.NoError(t, err)
@@ -70,12 +87,20 @@ func TestCursorDecodeWithContext_NoTrace(t *testing.T) {
 	c := &Cursor{Cursor: cursor, parentCtx: baseCtx}
 
 	var result bson.D
-	enriched, err := c.DecodeWithContext(baseCtx, &result)
+	_, err = c.DecodeWithContext(baseCtx, &result)
 	require.NoError(t, err)
 
-	// Context should not carry a remote span.
-	recovered := trace.SpanContextFromContext(enriched)
-	assert.False(t, recovered.IsValid())
+	// A mongo.cursor.decode span should be created but with no links.
+	ended := sr.Ended()
+	var decodeSpan sdktrace.ReadOnlySpan
+	for _, s := range ended {
+		if s.Name() == "mongo.cursor.decode" {
+			decodeSpan = s
+			break
+		}
+	}
+	require.NotNil(t, decodeSpan, "mongo.cursor.decode span should have been created")
+	assert.Empty(t, decodeSpan.Links(), "no links expected when document has no trace")
 }
 
 func TestSingleResultDecodeLinksOriginTrace(t *testing.T) {
