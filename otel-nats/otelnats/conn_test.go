@@ -178,7 +178,7 @@ func TestSubscribeExtractsTraceContext(t *testing.T) {
 
 	subject := "test.subscribe"
 	done := make(chan struct{}, 1)
-	_, err = conn.Subscribe(subject, func(m otelnats.MsgWithContext) {
+	_, err = conn.Subscribe(subject, func(m otelnats.Msg) {
 		_ = oteltrace.SpanFromContext(m.Context()).SpanContext().TraceID()
 		done <- struct{}{}
 	})
@@ -218,7 +218,7 @@ func TestQueueSubscribeRecordsQueueName(t *testing.T) {
 
 	subject, queue := "test.queue", "workers"
 	done := make(chan struct{}, 1)
-	_, err = conn.QueueSubscribe(subject, queue, func(m otelnats.MsgWithContext) {
+	_, err = conn.QueueSubscribe(subject, queue, func(m otelnats.Msg) {
 		done <- struct{}{}
 	})
 	require.NoError(t, err)
@@ -250,7 +250,7 @@ func TestSubscribeConsumerSpanLinkedToProducer(t *testing.T) {
 
 	subject := "test.linkage"
 	done := make(chan struct{}, 1)
-	_, err = conn.Subscribe(subject, func(m otelnats.MsgWithContext) {
+	_, err = conn.Subscribe(subject, func(m otelnats.Msg) {
 		done <- struct{}{}
 	})
 	require.NoError(t, err)
@@ -324,7 +324,7 @@ func TestDeliverSpanDisabledWithoutEndpoint(t *testing.T) {
 
 	subject := "test.nodeliver"
 	done := make(chan struct{}, 1)
-	_, err = conn.Subscribe(subject, func(m otelnats.MsgWithContext) {
+	_, err = conn.Subscribe(subject, func(m otelnats.Msg) {
 		done <- struct{}{}
 	})
 	require.NoError(t, err)
@@ -372,7 +372,7 @@ func TestDeliverSpanConsumerLinksToDeliverSpan(t *testing.T) {
 
 	subject := "test.deliver"
 	done := make(chan struct{}, 1)
-	_, err = conn.Subscribe(subject, func(m otelnats.MsgWithContext) {
+	_, err = conn.Subscribe(subject, func(m otelnats.Msg) {
 		done <- struct{}{}
 	})
 	require.NoError(t, err)

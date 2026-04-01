@@ -29,22 +29,22 @@ const (
 	messagingSystem        = "nats"
 )
 
-// MsgWithContext carries a message and the context with extracted trace (Subscribe/QueueSubscribe).
-// Use m.Msg for the message and m.Context() for the trace context. Naming aligns with oteljetstream.MsgWithContext.
-type MsgWithContext struct {
+// Msg carries a message and the context with extracted trace (Subscribe/QueueSubscribe).
+// Use m.Msg for the message and m.Context() for the trace context.
+type Msg struct {
 	Msg *nats.Msg
 	Ctx context.Context
 }
 
 // Context returns the context with extracted trace.
-func (m MsgWithContext) Context() context.Context { return m.Ctx }
+func (m Msg) Context() context.Context { return m.Ctx }
 
-// MsgHandler is the callback for subscriptions. Same as nats.MsgHandler but receives MsgWithContext
+// MsgHandler is the callback for subscriptions. Same as nats.MsgHandler but receives Msg
 // (trace in m.Context(), message in m.Msg). Type name matches nats.MsgHandler.
-type MsgHandler func(m MsgWithContext)
+type MsgHandler func(m Msg)
 
 // Conn is a tracing-aware wrapper around *nats.Conn. API mirrors nats.Conn; the only
-// difference is Publish/PublishMsg take context.Context and handlers receive MsgWithContext.
+// difference is Publish/PublishMsg take context.Context and handlers receive Msg.
 type Conn struct {
 	nc            *nats.Conn
 	tracer        trace.Tracer
@@ -350,12 +350,12 @@ func (c *Conn) Request(ctx context.Context, subject string, data []byte, timeout
 	return reply, nil
 }
 
-// Subscribe subscribes to subject. Handler receives MsgWithContext (m.Msg, m.Context()).
+// Subscribe subscribes to subject. Handler receives Msg (m.Msg, m.Context()).
 func (c *Conn) Subscribe(subject string, handler MsgHandler) (*nats.Subscription, error) {
 	return c.nc.Subscribe(subject, c.wrapHandler(subject, "", handler))
 }
 
-// QueueSubscribe is the queue-group variant. Handler receives MsgWithContext.
+// QueueSubscribe is the queue-group variant. Handler receives Msg.
 func (c *Conn) QueueSubscribe(subject, queue string, handler MsgHandler) (*nats.Subscription, error) {
 	return c.nc.QueueSubscribe(subject, queue, c.wrapHandler(subject, queue, handler))
 }
@@ -376,7 +376,7 @@ func (c *Conn) wrapHandler(subject, queue string, handler MsgHandler) nats.MsgHa
 		}
 		ctx, span := c.tracer.Start(consumerParentCtx, spanName, opts...)
 		defer span.End()
-		handler(MsgWithContext{Msg: msg, Ctx: ctx})
+		handler(Msg{Msg: msg, Ctx: ctx})
 	}
 }
 

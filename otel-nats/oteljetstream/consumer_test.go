@@ -126,7 +126,7 @@ func TestFetchReturnsMessagesWithTraceContext(t *testing.T) {
 		var ferr error
 		batch, ferr = cons.Fetch(5, jetstream.FetchMaxWait(300*time.Millisecond))
 		require.NoError(t, ferr)
-		for m := range batch.MessagesWithContext() {
+		for m := range batch.Messages() {
 			received++
 			assert.Equal(t, "hello fetch", string(m.Data()))
 			span := oteltrace.SpanFromContext(m.Context())
@@ -185,7 +185,7 @@ func TestConsumeTraceContext(t *testing.T) {
 	require.NoError(t, err)
 
 	done := make(chan struct{}, 1)
-	cc, err := cons.Consume(func(m oteljetstream.MsgWithContext) {
+	cc, err := cons.Consume(func(m oteljetstream.Msg) {
 		if oteltrace.SpanFromContext(m.Context()).SpanContext().TraceID().IsValid() {
 			done <- struct{}{}
 		}
@@ -236,7 +236,7 @@ func TestPushConsumeTraceContext(t *testing.T) {
 	require.NoError(t, err)
 
 	done := make(chan struct{}, 1)
-	cc, err := pushCons.Consume(func(m oteljetstream.MsgWithContext) {
+	cc, err := pushCons.Consume(func(m oteljetstream.Msg) {
 		if oteltrace.SpanFromContext(m.Context()).SpanContext().TraceID().IsValid() {
 			done <- struct{}{}
 		}
@@ -337,7 +337,7 @@ func TestFetchNoWaitReturnsTraceContext(t *testing.T) {
 	batch, err := cons.FetchNoWait(5)
 	require.NoError(t, err)
 	n := 0
-	for m := range batch.MessagesWithContext() {
+	for m := range batch.Messages() {
 		n++
 		assert.True(t, oteltrace.SpanFromContext(m.Context()).SpanContext().TraceID().IsValid(), "context should have trace")
 		_ = m.Ack()
@@ -378,7 +378,7 @@ func TestFetchBytesTraceContext(t *testing.T) {
 
 	batch, err := cons.FetchBytes(1024, jetstream.FetchMaxWait(5*time.Second))
 	require.NoError(t, err)
-	for m := range batch.MessagesWithContext() {
+	for m := range batch.Messages() {
 		assert.True(t, oteltrace.SpanFromContext(m.Context()).SpanContext().TraceID().IsValid(), "context should have trace")
 		_ = m.Ack()
 	}
@@ -415,7 +415,7 @@ func TestOrderedConsumerTraceContext(t *testing.T) {
 	require.NoError(t, err)
 
 	done := make(chan struct{}, 1)
-	cc, err := orderedCons.Consume(func(m oteljetstream.MsgWithContext) {
+	cc, err := orderedCons.Consume(func(m oteljetstream.Msg) {
 		if oteltrace.SpanFromContext(m.Context()).SpanContext().TraceID().IsValid() {
 			done <- struct{}{}
 		}
@@ -501,7 +501,7 @@ func TestJetStreamDeliverSpanConsume(t *testing.T) {
 	require.NoError(t, err)
 
 	done := make(chan struct{}, 1)
-	cc, err := cons.Consume(func(m oteljetstream.MsgWithContext) {
+	cc, err := cons.Consume(func(m oteljetstream.Msg) {
 		done <- struct{}{}
 		_ = m.Ack()
 	})
@@ -577,7 +577,7 @@ func TestJetStreamDeliverSpanFetch(t *testing.T) {
 	for attempt := 0; attempt < 30; attempt++ {
 		batch, ferr := cons.Fetch(5, jetstream.FetchMaxWait(300*time.Millisecond))
 		require.NoError(t, ferr)
-		for m := range batch.MessagesWithContext() {
+		for m := range batch.Messages() {
 			received++
 			_ = m.Ack()
 		}
@@ -663,7 +663,7 @@ func TestJetStreamConsumerManagerConsumerKeepsTraceWrapper(t *testing.T) {
 	require.NoError(t, err)
 
 	done := make(chan struct{}, 1)
-	cc, err := cons.Consume(func(m oteljetstream.MsgWithContext) {
+	cc, err := cons.Consume(func(m oteljetstream.Msg) {
 		if oteltrace.SpanFromContext(m.Context()).SpanContext().TraceID().IsValid() {
 			done <- struct{}{}
 		}
