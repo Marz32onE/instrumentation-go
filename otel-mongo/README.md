@@ -141,14 +141,23 @@ When `OTEL_EXPORTER_OTLP_ENDPOINT` is set, otelmongo creates synthetic "deliver"
 
 The endpoint must be a **full URL** for HTTP (e.g. `http://otel-collector:4318`) or **host:port** for gRPC (e.g. `otel-collector:4317`). Bare hostnames without scheme or port are not supported.
 
-### Producer-side (write path)
+Deliver spans are emitted for all CRUD operations (insert, find, update, delete, replace, aggregate, bulk write, distinct, count, etc.) as well as cursor decode and change stream paths.
+
+### Write path
 
 ```
 InsertOne (CLIENT, api)
   └── db.coll deliver (CONSUMER, mongodb)  ← injected into _oteltrace
 ```
 
-### Consumer-side (change stream path)
+### Read / delete path
+
+```
+FindOne / DeleteOne / ... (CLIENT, api)
+  └── db.coll deliver (CONSUMER, mongodb)
+```
+
+### Change stream path
 
 ```
 db.coll deliver (PRODUCER, mongodb)  ← links to producer deliver

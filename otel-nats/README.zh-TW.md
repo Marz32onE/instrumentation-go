@@ -42,7 +42,7 @@ conn, err := otelnats.Connect(natsURL, nil)
 defer conn.Close()
 
 conn.Publish(ctx, "subject", []byte("data"))
-conn.Subscribe("subject", func(m otelnats.MsgWithContext) {
+conn.Subscribe("subject", func(m otelnats.Msg) {
     // m.Msg、m.Context() — 從 header 解出的 trace
 })
 ```
@@ -53,7 +53,7 @@ conn.Subscribe("subject", func(m otelnats.MsgWithContext) {
 
 ```go
 js, _ := oteljetstream.New(conn)
-cons.Consume(func(m oteljetstream.MsgWithContext) {
+cons.Consume(func(m oteljetstream.Msg) {
     // m.Data()、m.Ack()、m.Context()
 })
 
@@ -62,7 +62,7 @@ pushCons, _ := js.CreateOrUpdatePushConsumer(ctx, "MYSTREAM", oteljetstream.Cons
     DeliverSubject: "push.deliver",
     FilterSubject:  "events.push",
 })
-pushCons.Consume(func(m oteljetstream.MsgWithContext) {
+pushCons.Consume(func(m oteljetstream.Msg) {
     _ = m.Ack() // 與 pull consume 相同的 trace context 行為
 })
 ```
