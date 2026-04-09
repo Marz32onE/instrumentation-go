@@ -3,6 +3,9 @@ package otelgorillaws
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMarshalWire_EnvelopeFormat(t *testing.T) {
@@ -12,42 +15,27 @@ func TestMarshalWire_EnvelopeFormat(t *testing.T) {
 		"baggage":         "a=b",
 	}
 	raw, err := marshalWire(carrier, []byte(`{"x":1}`))
-	if err != nil {
-		t.Fatalf("marshalWire error: %v", err)
-	}
+	require.NoError(t, err)
 
 	var env wireEnvelope
-	if err := json.Unmarshal(raw, &env); err != nil {
-		t.Fatalf("unmarshal envelope error: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(raw, &env))
 
 	// traceparent and tracestate must be in header
-	if env.Header[TraceparentHeader] != "00-12345678901234567890123456789012-0123456789012345-01" {
-		t.Fatalf("expected traceparent in header, got %q", env.Header[TraceparentHeader])
-	}
-	if env.Header[TracestateHeader] != "k=v" {
-		t.Fatalf("expected tracestate in header, got %q", env.Header[TracestateHeader])
-	}
+	assert.Equal(t, "00-12345678901234567890123456789012-0123456789012345-01", env.Header[TraceparentHeader])
+	assert.Equal(t, "k=v", env.Header[TracestateHeader])
 
 	// baggage must NOT appear in header
-	if _, ok := env.Header["baggage"]; ok {
-		t.Fatalf("unexpected baggage in header")
-	}
+	assert.NotContains(t, env.Header, "baggage")
 
 	// original user data must be preserved in data field
 	var data map[string]json.RawMessage
-	if err := json.Unmarshal(env.Data, &data); err != nil {
-		t.Fatalf("unmarshal data field error: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(env.Data, &data))
 	var x int
-	if err := json.Unmarshal(data["x"], &x); err != nil || x != 1 {
-		t.Fatalf("expected x=1 in data, got %v", x)
-	}
+	require.NoError(t, json.Unmarshal(data["x"], &x))
+	assert.Equal(t, 1, x)
 
 	// trace fields must NOT appear at top level or inside data
-	if _, ok := data[TraceparentHeader]; ok {
-		t.Fatalf("traceparent must not leak into data field")
-	}
+	assert.NotContains(t, data, TraceparentHeader, "traceparent must not leak into data field")
 }
 
 func TestMarshalWire_NonObjectPayload_WrappedInEnvelope(t *testing.T) {
@@ -66,23 +54,13 @@ func TestMarshalWire_NonObjectPayload_WrappedInEnvelope(t *testing.T) {
 
 	for _, tc := range cases {
 		raw, err := marshalWire(carrier, []byte(tc.payload))
-		if err != nil {
-			t.Fatalf("marshalWire(%s) error: %v", tc.payload, err)
-		}
+		require.NoError(t, err, "marshalWire(%s)", tc.payload)
 
 		var env wireEnvelope
-		if err := json.Unmarshal(raw, &env); err != nil {
-			t.Fatalf("unmarshal envelope for %s error: %v", tc.payload, err)
-		}
-		if env.Header == nil {
-			t.Fatalf("expected non-nil header for payload %s", tc.payload)
-		}
-		if env.Header[TraceparentHeader] == "" {
-			t.Fatalf("expected traceparent in header for payload %s", tc.payload)
-		}
-		if string(env.Data) != tc.wantData {
-			t.Fatalf("data field for %s = %q, want %q", tc.payload, string(env.Data), tc.wantData)
-		}
+		require.NoError(t, json.Unmarshal(raw, &env), "unmarshal envelope for %s", tc.payload)
+		require.NotNil(t, env.Header, "expected non-nil header for payload %s", tc.payload)
+		assert.NotEmpty(t, env.Header[TraceparentHeader], "expected traceparent in header for payload %s", tc.payload)
+		assert.Equal(t, tc.wantData, string(env.Data), "data field for payload %s", tc.payload)
 	}
 }
 
@@ -91,85 +69,54 @@ func TestMarshalWire_NonJSONPayload_WrappedAsString(t *testing.T) {
 		TraceparentHeader: "00-12345678901234567890123456789012-0123456789012345-01",
 	}
 	raw, err := marshalWire(carrier, []byte("plain text"))
-	if err != nil {
-		t.Fatalf("marshalWire error: %v", err)
-	}
+	require.NoError(t, err)
 
 	var env wireEnvelope
-	if err := json.Unmarshal(raw, &env); err != nil {
-		t.Fatalf("unmarshal envelope error: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(raw, &env))
 	// data must be the JSON-encoded string
 	var s string
-	if err := json.Unmarshal(env.Data, &s); err != nil || s != "plain text" {
-		t.Fatalf("expected data=\"plain text\", got %q", string(env.Data))
-	}
+	require.NoError(t, json.Unmarshal(env.Data, &s))
+	assert.Equal(t, "plain text", s)
 }
 
 func TestTryUnmarshalWire_EnvelopeFormat(t *testing.T) {
 	input := `{"header":{"traceparent":"00-aabb-01","tracestate":"k=v"},"data":{"x":1,"y":"hello"}}`
 	payload, hdrs, ok := tryUnmarshalWire([]byte(input))
-	if !ok {
-		t.Fatalf("expected ok=true")
-	}
-	if hdrs[TraceparentHeader] != "00-aabb-01" {
-		t.Fatalf("traceparent = %q, want 00-aabb-01", hdrs[TraceparentHeader])
-	}
-	if hdrs[TracestateHeader] != "k=v" {
-		t.Fatalf("tracestate = %q, want k=v", hdrs[TracestateHeader])
-	}
+	require.True(t, ok)
+	assert.Equal(t, "00-aabb-01", hdrs[TraceparentHeader])
+	assert.Equal(t, "k=v", hdrs[TracestateHeader])
 
 	// payload must be the data field contents
 	var out map[string]json.RawMessage
-	if err := json.Unmarshal(payload, &out); err != nil {
-		t.Fatalf("unmarshal payload error: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(payload, &out))
 	var x int
-	if err := json.Unmarshal(out["x"], &x); err != nil || x != 1 {
-		t.Fatalf("expected x=1 in payload, got %v", x)
-	}
+	require.NoError(t, json.Unmarshal(out["x"], &x))
+	assert.Equal(t, 1, x)
 	// trace fields must not appear in the returned payload
-	if _, found := out[TraceparentHeader]; found {
-		t.Fatalf("traceparent must not appear in returned payload")
-	}
+	assert.NotContains(t, out, TraceparentHeader, "traceparent must not appear in returned payload")
 }
 
 func TestTryUnmarshalWire_LegacyFlatFormat(t *testing.T) {
 	// Old Go flat-inject format — must still be parseable for backward compat.
 	input := `{"x":1,"traceparent":"00-aabb-01","tracestate":"k=v","y":"hello"}`
 	payload, hdrs, ok := tryUnmarshalWire([]byte(input))
-	if !ok {
-		t.Fatalf("expected ok=true for legacy flat format")
-	}
-	if hdrs[TraceparentHeader] != "00-aabb-01" {
-		t.Fatalf("traceparent = %q, want 00-aabb-01", hdrs[TraceparentHeader])
-	}
-	if hdrs[TracestateHeader] != "k=v" {
-		t.Fatalf("tracestate = %q, want k=v", hdrs[TracestateHeader])
-	}
+	require.True(t, ok, "expected ok=true for legacy flat format")
+	assert.Equal(t, "00-aabb-01", hdrs[TraceparentHeader])
+	assert.Equal(t, "k=v", hdrs[TracestateHeader])
 
 	// trace fields must be stripped from the returned payload
 	var out map[string]json.RawMessage
-	if err := json.Unmarshal(payload, &out); err != nil {
-		t.Fatalf("unmarshal payload error: %v", err)
-	}
-	if _, found := out[TraceparentHeader]; found {
-		t.Fatalf("traceparent must be stripped from legacy payload")
-	}
-	if _, found := out[TracestateHeader]; found {
-		t.Fatalf("tracestate must be stripped from legacy payload")
-	}
+	require.NoError(t, json.Unmarshal(payload, &out))
+	assert.NotContains(t, out, TraceparentHeader, "traceparent must be stripped from legacy payload")
+	assert.NotContains(t, out, TracestateHeader, "tracestate must be stripped from legacy payload")
 	var x int
-	if err := json.Unmarshal(out["x"], &x); err != nil || x != 1 {
-		t.Fatalf("expected x=1 in payload, got %v", x)
-	}
+	require.NoError(t, json.Unmarshal(out["x"], &x))
+	assert.Equal(t, 1, x)
 }
 
 func TestTryUnmarshalWire_NonObject_ReturnsFalse(t *testing.T) {
 	for _, input := range []string{`"hello"`, `[1,2]`, `42`, `not-json`} {
 		_, _, ok := tryUnmarshalWire([]byte(input))
-		if ok {
-			t.Fatalf("tryUnmarshalWire(%q) expected ok=false", input)
-		}
+		assert.False(t, ok, "tryUnmarshalWire(%q) expected ok=false", input)
 	}
 }

@@ -2,11 +2,13 @@ package otelmongo
 
 import (
 	"context"
+	"log"
 	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	tcmongo "github.com/testcontainers/testcontainers-go/modules/mongodb"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -16,12 +18,44 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// requireMongoDB skips the test when the MONGO_URI environment variable is not set.
+// testMongoURI is populated by TestMain from the container. Zero value = Docker unavailable.
+var testMongoURI string
+
+// TestMain starts a single MongoDB container for all integration tests in this
+// package and tears it down after the suite completes. If the container cannot
+// be started (e.g. Docker is unavailable), integration tests fall back to the
+// MONGO_URI environment variable and are skipped if that is also unset.
+func TestMain(m *testing.M) {
+	ctx := context.Background()
+	var container *tcmongo.MongoDBContainer
+	container, err := tcmongo.Run(ctx, "mongo:7.0",
+		tcmongo.WithReplicaSet("rs0"),
+	)
+	if err != nil {
+		log.Printf("WARNING: could not start mongodb container (integration tests will be skipped unless MONGO_URI is set): %v", err)
+	} else {
+		testMongoURI, err = container.ConnectionString(ctx)
+		if err != nil {
+			log.Printf("WARNING: could not get mongodb connection string: %v", err)
+		}
+	}
+	code := m.Run()
+	if container != nil {
+		_ = container.Terminate(ctx)
+	}
+	os.Exit(code)
+}
+
+// requireMongoDB returns the MongoDB URI for integration tests, preferring the
+// container URI set by TestMain and falling back to the MONGO_URI env var.
 func requireMongoDB(t *testing.T) string {
 	t.Helper()
+	if testMongoURI != "" {
+		return testMongoURI
+	}
 	uri := os.Getenv("MONGO_URI")
 	if uri == "" {
-		t.Skip("MONGO_URI not set; skipping integration test")
+		t.Skip("no MongoDB available: TestMain container not running and MONGO_URI not set")
 	}
 	return uri
 }

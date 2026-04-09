@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 )
@@ -45,9 +46,8 @@ func assertField(t *testing.T, model any, fieldName string) {
 	t.Helper()
 	v := reflect.ValueOf(model).Elem()
 	f := v.FieldByName(fieldName)
-	if !f.IsValid() {
-		t.Errorf("%T: field %q not found — bulkwrite.go reflection will silently skip trace injection", model, fieldName)
-	} else if !f.CanInterface() {
-		t.Errorf("%T: field %q is unexported — bulkwrite.go reflection will silently skip trace injection", model, fieldName)
+	assert.True(t, f.IsValid(), "%T: field %q not found — bulkwrite.go reflection will silently skip trace injection", model, fieldName)
+	if f.IsValid() {
+		assert.True(t, f.CanInterface(), "%T: field %q is unexported — bulkwrite.go reflection will silently skip trace injection", model, fieldName)
 	}
 }
