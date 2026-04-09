@@ -11,29 +11,68 @@ const (
 	TracestateHeader = "tracestate"
 )
 
-// marshalWire injects traceparent/tracestate into the JSON object payload (flat format).
-// Non-object payloads (strings, arrays, etc.) are returned unchanged with no trace injection.
-func marshalWire(carrier map[string]string, payload []byte) ([]byte, error) {
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(payload, &obj); err != nil {
-		// Not a JSON object: send as-is, no trace injection.
-		return payload, nil
-	}
-	if tp := carrier[TraceparentHeader]; tp != "" {
-		b, _ := json.Marshal(tp)
-		obj[TraceparentHeader] = b
-	}
-	if ts := carrier[TracestateHeader]; ts != "" {
-		b, _ := json.Marshal(ts)
-		obj[TracestateHeader] = b
-	}
-	return json.Marshal(obj)
+// wireEnvelope is the on-wire format shared with the JS instrumentation packages.
+// Both otel-ws and otel-rxjs-ws produce and consume this exact structure.
+type wireEnvelope struct {
+	Header map[string]string `json:"header"`
+	Data   json.RawMessage   `json:"data"`
 }
 
-// tryUnmarshalWire extracts traceparent/tracestate from the top-level JSON object,
-// removes them, and returns the remaining fields as payload.
-// Returns ok=false for non-object JSON (strings, arrays, parse errors).
+// marshalWire wraps payload in the envelope format:
+//
+//	{"header":{"traceparent":"...","tracestate":"..."},"data":<payload>}
+//
+// All payload types are wrapped — objects, arrays, strings, numbers.
+// If payload is not valid JSON (e.g. raw binary), it is JSON-encoded as a string first.
+func marshalWire(carrier map[string]string, payload []byte) ([]byte, error) {
+	header := make(map[string]string)
+	if tp := carrier[TraceparentHeader]; tp != "" {
+		header[TraceparentHeader] = tp
+	}
+	if ts := carrier[TracestateHeader]; ts != "" {
+		header[TracestateHeader] = ts
+	}
+
+	var rawData json.RawMessage
+	if json.Valid(payload) {
+		rawData = payload
+	} else {
+		// Non-JSON bytes (e.g. raw binary text): encode as a JSON string so the
+		// data field is always valid JSON, mirroring what the JS packages do.
+		encoded, err := json.Marshal(string(payload))
+		if err != nil {
+			return payload, nil
+		}
+		rawData = encoded
+	}
+	return json.Marshal(wireEnvelope{Header: header, Data: rawData})
+}
+
+// tryUnmarshalWire extracts trace headers from an incoming message and returns
+// the original user payload. It handles two formats:
+//
+//  1. Envelope format (new, compatible with JS packages):
+//     {"header":{"traceparent":"...","tracestate":"..."},"data":<payload>}
+//
+//  2. Legacy flat format (backward compat with old Go-only deployments):
+//     {"traceparent":"...","tracestate":"...","field1":"value1"}
+//
+// Returns ok=false for non-JSON or non-object input.
 func tryUnmarshalWire(data []byte) (payload []byte, headers map[string]string, ok bool) {
+	// 1. Try envelope format first (JS packages + new Go code).
+	var env wireEnvelope
+	if err := json.Unmarshal(data, &env); err == nil && env.Header != nil && env.Data != nil {
+		h := make(map[string]string)
+		if tp := env.Header[TraceparentHeader]; tp != "" {
+			h[TraceparentHeader] = tp
+		}
+		if ts := env.Header[TracestateHeader]; ts != "" {
+			h[TracestateHeader] = ts
+		}
+		return env.Data, h, true
+	}
+
+	// 2. Fallback: legacy flat format (old Go clients).
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(data, &m); err != nil || len(m) == 0 {
 		return nil, nil, false

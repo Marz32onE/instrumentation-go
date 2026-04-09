@@ -121,6 +121,9 @@ func (c *Collection) Find(ctx context.Context, filter any, opts ...*options.Find
 	)
 	defer span.End()
 
+	_, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
+	defer deliverSpan.End()
+
 	cursor, err := c.Collection.Find(ctx, filter, opts...)
 	recordSpanError(span, err)
 	if err != nil {
@@ -137,7 +140,9 @@ func (c *Collection) FindOne(ctx context.Context, filter any, opts ...*options.F
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(dbAttributes(dbName, collName, "find", 0, c.serverAddr, c.serverPort)...),
 	)
+	_, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
 	sr := c.Collection.FindOne(ctx, filter, opts...)
+	deliverSpan.End()
 	return &SingleResult{SingleResult: sr, span: span, ctx: ctx}
 }
 
@@ -223,6 +228,9 @@ func (c *Collection) DeleteOne(ctx context.Context, filter any, opts ...*options
 	)
 	defer span.End()
 
+	_, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
+	defer deliverSpan.End()
+
 	res, err := c.Collection.DeleteOne(ctx, filter, opts...)
 	recordSpanError(span, err)
 	if err != nil {
@@ -239,6 +247,9 @@ func (c *Collection) DeleteMany(ctx context.Context, filter any, opts ...*option
 		trace.WithAttributes(dbAttributes(dbName, collName, "delete", 0, c.serverAddr, c.serverPort)...),
 	)
 	defer span.End()
+
+	_, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
+	defer deliverSpan.End()
 
 	res, err := c.Collection.DeleteMany(ctx, filter, opts...)
 	recordSpanError(span, err)
@@ -257,6 +268,9 @@ func (c *Collection) CountDocuments(ctx context.Context, filter any, opts ...*op
 	)
 	defer span.End()
 
+	_, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
+	defer deliverSpan.End()
+
 	n, err := c.Collection.CountDocuments(ctx, filter, opts...)
 	recordSpanError(span, err)
 	return n, err
@@ -271,6 +285,9 @@ func (c *Collection) Distinct(ctx context.Context, fieldName string, filter any,
 	)
 	defer span.End()
 
+	_, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
+	defer deliverSpan.End()
+
 	vals, err := c.Collection.Distinct(ctx, fieldName, filter, opts...)
 	recordSpanError(span, err)
 	return vals, err
@@ -284,6 +301,9 @@ func (c *Collection) Aggregate(ctx context.Context, pipeline any, opts ...*optio
 		trace.WithAttributes(dbAttributes(dbName, collName, "aggregate", 0, c.serverAddr, c.serverPort)...),
 	)
 	defer span.End()
+
+	_, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
+	defer deliverSpan.End()
 
 	cursor, err := c.Collection.Aggregate(ctx, pipeline, opts...)
 	recordSpanError(span, err)

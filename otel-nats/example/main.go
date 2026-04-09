@@ -7,7 +7,7 @@
 // Sections covered:
 //  1. TracerProvider setup
 //  2. Core NATS publish (with trace context)
-//  3. Core NATS subscribe (handler receives MsgWithContext)
+//  3. Core NATS subscribe (handler receives Msg)
 //  4. JetStream publish
 //  5. JetStream consumer Consume callback (push-based)
 package main
@@ -70,11 +70,11 @@ func main() {
 	defer conn.Close()
 
 	// ---------------------------------------------------------------
-	// 3) Core NATS Subscribe — handler receives MsgWithContext.
+	// 3) Core NATS Subscribe — handler receives Msg.
 	//    m.Msg is the original *nats.Msg; m.Context() carries the
 	//    extracted trace context (linked to the producer span).
 	// ---------------------------------------------------------------
-	sub, err := conn.Subscribe("example.core", func(m otelnats.MsgWithContext) {
+	sub, err := conn.Subscribe("example.core", func(m otelnats.Msg) {
 		// m.Context() contains the consumer span context — pass it
 		// to downstream calls (DB, HTTP, etc.) to continue the trace.
 		ctx := m.Context()
@@ -126,7 +126,7 @@ func main() {
 
 	// ---------------------------------------------------------------
 	// 6) JetStream Consumer with Consume (push-based callback).
-	//    The handler receives oteljetstream.MsgWithContext which embeds
+	//    The handler receives oteljetstream.Msg which embeds
 	//    jetstream.Msg — use m.Data(), m.Ack(), m.Headers(), and
 	//    m.Context() for the trace context.
 	// ---------------------------------------------------------------
@@ -144,9 +144,9 @@ func main() {
 	}
 
 	// Consume starts a push-based message loop. The handler receives
-	// MsgWithContext: m.Context() carries the consumer span (linked to
+	// Msg: m.Context() carries the consumer span (linked to
 	// the producer span via the propagated trace headers).
-	cc, err := consumer.Consume(func(m oteljetstream.MsgWithContext) {
+	cc, err := consumer.Consume(func(m oteljetstream.Msg) {
 		// m embeds jetstream.Msg — call m.Data(), m.Subject(), etc. directly.
 		// m.Context() returns the context with the consumer span.
 		ctx := m.Context()

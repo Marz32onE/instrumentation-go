@@ -30,9 +30,6 @@ func publishAttrs(msg *nats.Msg, serverAttrs []attribute.KeyValue) []attribute.K
 	return attrs
 }
 
-// Msg is the JetStream message type (alias of jetstream.Msg). Use so callers need not import jetstream.
-type Msg = jetstream.Msg
-
 // PubAck is the publish acknowledgement type (alias of jetstream.PubAck).
 type PubAck = jetstream.PubAck
 

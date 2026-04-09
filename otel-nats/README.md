@@ -20,7 +20,7 @@ otel-nats/
 ├── oteljetstream/      # JetStream: New, JetStream, Stream, Consumer, PushConsumer, full consumer-manager wrappers, Consume, Messages, Fetch
 │   ├── jetstream.go    # New(conn), Publish, CreateOrUpdateStream
 │   ├── stream.go       # Stream, Consumer/PushConsumer, CreateOrUpdateConsumer/CreateOrUpdatePushConsumer
-│   ├── consumer.go     # Consume, Messages, Fetch, MessageBatch (MessagesWithContext), MsgWithContext
+│   ├── consumer.go     # Consume, Messages, Fetch, MessageBatch (Messages), Msg
 │   └── doc.go
 ├── example/            # How to create TracerProvider + set global + use otelnats/oteljetstream
 ├── go.mod
@@ -69,7 +69,7 @@ if err != nil { log.Fatal(err) }
 defer conn.Close()
 
 conn.Publish(ctx, "subject", []byte("data"))
-conn.Subscribe("subject", func(m otelnats.MsgWithContext) {
+conn.Subscribe("subject", func(m otelnats.Msg) {
     // m.Msg, m.Context() — trace from headers in m.Context()
 })
 conn.QueueSubscribe("subject", "queue", handler)
@@ -90,7 +90,7 @@ defer conn.Close()
 
 js, err := oteljetstream.New(conn)
 // After creating stream/consumer:
-cons.Consume(func(m oteljetstream.MsgWithContext) {
+cons.Consume(func(m oteljetstream.Msg) {
     // m.Data(), m.Ack(), m.Context() — trace from message headers
 })
 
@@ -100,7 +100,7 @@ pushCons, _ := js.CreateOrUpdatePushConsumer(ctx, "MYSTREAM", oteljetstream.Cons
     DeliverSubject: "push.deliver",
     FilterSubject:  "events.push",
 })
-pushCons.Consume(func(m oteljetstream.MsgWithContext) {
+pushCons.Consume(func(m oteljetstream.Msg) {
     // same trace extraction behavior
     _ = m.Ack()
 })
@@ -159,14 +159,14 @@ The endpoint must be a **full URL** for HTTP (e.g. `http://otel-collector:4318`)
 
 ## MessageBatch (`Fetch` / `FetchBytes` / `FetchNoWait`)
 
-Iterate `MessagesWithContext()` to receive each message with its extracted trace context. Drain the channel completely for each batch before the next `Fetch`.
+Iterate `Messages()` to receive each message with its extracted trace context. Drain the channel completely for each batch before the next `Fetch`.
 
 ```go
 batch, err := consumer.Fetch(10)
 if err != nil { ... }
-for mwc := range batch.MessagesWithContext() {
-    _ = mwc.Context()
-    _ = mwc.Ack()
+for m := range batch.Messages() {
+    _ = m.Context()
+    _ = m.Ack()
 }
 if err := batch.Error(); err != nil { ... }
 ```
