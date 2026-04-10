@@ -238,4 +238,4 @@ Log entries use the `otelmongo:` prefix with `error`, `reason`, `service`, and `
 
 - **v2** (`.../otel-mongo/v2`): `go.mongodb.org/mongo-driver/v2`, `go.opentelemetry.io/contrib/instrumentation/.../v2/mongo/otelmongo`, `go.opentelemetry.io/otel` and SDK. See `v2/go.mod`.
 - **otelmongo** (v1, root): `go.mongodb.org/mongo-driver` v1, `go.opentelemetry.io/contrib/instrumentation/.../mongo/otelmongo`, `go.opentelemetry.io/otel` and SDK. See root `go.mod`.
-- Go 1.25+
+- Go 1.24+

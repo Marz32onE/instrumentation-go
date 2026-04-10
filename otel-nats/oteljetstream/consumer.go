@@ -124,8 +124,21 @@ func (c *consumerImpl) Next(ctx context.Context, opts ...jetstream.FetchOpt) (co
 	if h == nil {
 		h = make(nats.Header)
 	}
-	_, prop := c.conn.TraceContext()
+	tracer, prop := c.conn.TraceContext()
 	msgCtx := prop.Extract(context.Background(), &otelnats.HeaderCarrier{H: h})
+	originSpanCtx := trace.SpanContextFromContext(msgCtx)
+	consumerParentCtx := c.conn.ConsumerContextWithDeliver(context.Background(), msg.Subject(), originSpanCtx)
+	spanName := "receive " + msg.Subject()
+	attrs := append(receiveAttrs(msg, "receive", c.conn.ServerAttrs()), attribute.String(attrConsumerName, c.consumerName))
+	startOpts := []trace.SpanStartOption{
+		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(attrs...),
+	}
+	if originSpanCtx.IsValid() {
+		startOpts = append(startOpts, trace.WithLinks(trace.Link{SpanContext: originSpanCtx}))
+	}
+	_, span := tracer.Start(consumerParentCtx, spanName, startOpts...)
+	span.End()
 	return msgCtx, msg, nil
 }
 

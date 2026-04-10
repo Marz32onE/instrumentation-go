@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.opentelemetry.io/otel"
@@ -32,38 +34,24 @@ func TestCursorDecodeWithContext_NewTraceIDAndLinksOriginTrace(t *testing.T) {
 
 	// Build a cursor document that contains the origin trace metadata.
 	injected, err := injectTraceIntoDocument(originCtx, bson.D{{Key: "field", Value: "v"}})
-	if err != nil {
-		t.Fatalf("injectTraceIntoDocument: %v", err)
-	}
+	require.NoError(t, err, "injectTraceIntoDocument")
 	rawDoc, err := bson.Marshal(injected)
-	if err != nil {
-		t.Fatalf("bson.Marshal injected doc: %v", err)
-	}
+	require.NoError(t, err, "bson.Marshal injected doc")
 
 	cur, err := mongo.NewCursorFromDocuments([]interface{}{rawDoc}, nil, nil)
-	if err != nil {
-		t.Fatalf("NewCursorFromDocuments: %v", err)
-	}
+	require.NoError(t, err, "NewCursorFromDocuments")
 	defer func() { _ = cur.Close(context.Background()) }()
-	if !cur.Next(context.Background()) {
-		t.Fatalf("expected cursor.Next=true")
-	}
+	require.True(t, cur.Next(context.Background()), "expected cursor.Next=true")
 
 	wrapped := &Cursor{Cursor: cur, parentCtx: context.Background()}
 
 	var out bson.D
 	enrichedCtx, err := wrapped.DecodeWithContext(context.Background(), &out)
-	if err != nil {
-		t.Fatalf("DecodeWithContext: %v", err)
-	}
+	require.NoError(t, err, "DecodeWithContext")
 
 	recovered := trace.SpanContextFromContext(enrichedCtx)
-	if !recovered.IsValid() {
-		t.Fatalf("expected returned context to contain a valid span context")
-	}
-	if recovered.TraceID() == originSpanCtx.TraceID() {
-		t.Fatalf("expected new TraceID different from origin; got=%s origin=%s", recovered.TraceID(), originSpanCtx.TraceID())
-	}
+	require.True(t, recovered.IsValid(), "expected returned context to contain a valid span context")
+	assert.NotEqual(t, originSpanCtx.TraceID(), recovered.TraceID(), "expected new TraceID different from origin")
 
 	// Validate that the internal decode span has a link to the origin TraceID.
 	var found bool
@@ -73,15 +61,9 @@ func TestCursorDecodeWithContext_NewTraceIDAndLinksOriginTrace(t *testing.T) {
 		}
 		found = true
 		links := s.Links()
-		if len(links) == 0 {
-			t.Fatalf("expected decode span to have at least 1 link")
-		}
-		if links[0].SpanContext.TraceID() != originSpanCtx.TraceID() {
-			t.Fatalf("expected decode link TraceID=%s, got=%s", originSpanCtx.TraceID(), links[0].SpanContext.TraceID())
-		}
+		require.NotEmpty(t, links, "expected decode span to have at least 1 link")
+		assert.Equal(t, originSpanCtx.TraceID(), links[0].SpanContext.TraceID(), "decode link TraceID mismatch")
 		break
 	}
-	if !found {
-		t.Fatalf("expected a span named %q", "mongo.cursor.decode")
-	}
+	require.True(t, found, "expected a span named %q", "mongo.cursor.decode")
 }

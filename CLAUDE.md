@@ -108,4 +108,4 @@ Async consumers (NATS subscribers, MongoDB change stream readers, WebSocket read
 
 ## CI
 
-`.github/workflows/ci.yml` runs a matrix job for all four modules on every push/PR to `main`, `master`, or `feat/*`. Each job: `go build`, `go test -race`, `golangci-lint`. Go 1.25, Ubuntu.
+`.github/workflows/ci.yml` runs a matrix job for all four modules on every push/PR to `main`, `master`, or `feat/*`. Each job: `go build`, `go test -race`, `golangci-lint`. Go 1.24, Ubuntu.

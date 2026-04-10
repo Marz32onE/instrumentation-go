@@ -198,6 +198,6 @@ Log entries use the `otelnats:` prefix with `error`, `reason`, `service`, and `e
 
 - `github.com/nats-io/nats.go` (includes JetStream)
 - `go.opentelemetry.io/otel` and SDK (trace, propagation)
-- Go 1.25+
+- Go 1.24+
 
 Tests use `github.com/stretchr/testify` and `nats-server/v2` for integration tests.
