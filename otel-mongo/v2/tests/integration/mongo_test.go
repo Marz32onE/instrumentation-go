@@ -137,7 +137,7 @@ func TestIntegration_InsertManyAllHaveOtelTrace(t *testing.T) {
 // TestIntegration_CursorDecodeWithContextExtractsTrace verifies that
 // Cursor.DecodeWithContext returns a context carrying the insert span's TraceID.
 func TestIntegration_CursorDecodeWithContextExtractsTrace(t *testing.T) {
-	tp, _ := newTestProvider()
+	tp, sr := newTestProvider()
 	setupOtel(tp)
 
 	client, err := otelmongo.Connect(options.Client().ApplyURI(mongoURI))
@@ -167,8 +167,18 @@ func TestIntegration_CursorDecodeWithContextExtractsTrace(t *testing.T) {
 
 	sc := oteltrace.SpanContextFromContext(enrichedCtx)
 	assert.True(t, sc.IsValid(), "enriched context should carry a valid span context")
-	// v2 DecodeWithContext restores trace context directly; TraceID should match insert.
-	assert.Equal(t, wantTraceID, sc.TraceID(), "cursor context should carry insert span's TraceID")
+
+	var decodeSpan sdktrace.ReadOnlySpan
+	for _, s := range sr.Ended() {
+		if s.Name() == "mongo.cursor.decode" {
+			decodeSpan = s
+			break
+		}
+	}
+	require.NotNil(t, decodeSpan, "mongo.cursor.decode span should have been recorded")
+	links := decodeSpan.Links()
+	require.NotEmpty(t, links, "expected link to insert trace")
+	assert.Equal(t, wantTraceID, links[0].SpanContext.TraceID())
 }
 
 // TestIntegration_SingleResultTraceContextExtractsTrace verifies that

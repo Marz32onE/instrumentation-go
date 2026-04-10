@@ -219,7 +219,7 @@ func TestCollectionUpdateOne_InjectTrace(t *testing.T) {
 	// UpdateOne span should exist (no extra read; trace is injected into update).
 	var updateOneSpan sdktrace.ReadOnlySpan
 	for _, s := range sr.Ended() {
-		if s.Name() == "updateOne update_inject" {
+		if s.Name() == "update update_inject" {
 			updateOneSpan = s
 			break
 		}
@@ -250,7 +250,7 @@ func TestCollectionDeleteOne_OneRoundTrip(t *testing.T) {
 	// deleteOne span should exist; no extra read (one round-trip only).
 	var deleteSpan sdktrace.ReadOnlySpan
 	for _, s := range sr.Ended() {
-		if s.Name() == "deleteOne delete_one" {
+		if s.Name() == "delete delete_one" {
 			deleteSpan = s
 			break
 		}
@@ -304,7 +304,7 @@ func TestCollectionUpdateByID_InjectTrace(t *testing.T) {
 
 	var found sdktrace.ReadOnlySpan
 	for _, s := range sr.Ended() {
-		if s.Name() == "updateOne update_by_id" {
+		if s.Name() == "update update_by_id" {
 			found = s
 			break
 		}
@@ -333,7 +333,7 @@ func TestCollectionDeleteOneByID(t *testing.T) {
 
 	var found sdktrace.ReadOnlySpan
 	for _, s := range sr.Ended() {
-		if s.Name() == "deleteOne delete_by_id" {
+		if s.Name() == "delete delete_by_id" {
 			found = s
 			break
 		}
@@ -410,7 +410,7 @@ func TestCollectionBulkWrite(t *testing.T) {
 	}
 	res, err := coll.BulkWrite(context.Background(), models)
 	require.NoError(t, err)
-	assert.Equal(t, int32(2), res.InsertedCount)
+	assert.Equal(t, int64(2), res.InsertedCount)
 
 	var found sdktrace.ReadOnlySpan
 	for _, s := range sr.Ended() {

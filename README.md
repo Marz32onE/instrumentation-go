@@ -1,6 +1,6 @@
 # instrumentation-go
 
-OpenTelemetry instrumentation packages for NATS, MongoDB, and WebSocket, aligned with [OTel Go Contrib instrumentation guidelines](https://github.com/open-telemetry/opentelemetry-go-contrib/tree/main/instrumentation). This repo contains **four Go modules**, each versioned independently (per-module tags). All modules require **Go 1.25**; CI runs build, test, and golangci-lint per module (see [.github/workflows/ci.yml](.github/workflows/ci.yml)). Each package accepts **TracerProvider** and **Propagators** via options and uses the global provider/propagator when not supplied; **applications** are responsible for creating and setting the TracerProvider at startup (see each package’s **example/**).
+OpenTelemetry instrumentation packages for NATS, MongoDB, and WebSocket, aligned with [OTel Go Contrib instrumentation guidelines](https://github.com/open-telemetry/opentelemetry-go-contrib/tree/main/instrumentation). This repo contains **four Go modules**, each versioned independently (per-module tags). All modules require **Go 1.24**; CI runs build, test, and golangci-lint per module (see [.github/workflows/ci.yml](.github/workflows/ci.yml)). Each package accepts **TracerProvider** and **Propagators** via options and uses the global provider/propagator when not supplied; **applications** are responsible for creating and setting the TracerProvider at startup (see each package’s **example/**).
 
 ## Packages
 
