@@ -163,7 +163,7 @@ func TestIntegration_SubscribeExtractsTraceContext(t *testing.T) {
 
 	subject := "integ.subscribe.trace"
 	done := make(chan struct{}, 1)
-	_, err = conn.Subscribe(subject, func(m otelnats.MsgWithContext) {
+	_, err = conn.Subscribe(subject, func(m otelnats.Msg) {
 		assert.True(t, oteltrace.SpanFromContext(m.Context()).SpanContext().TraceID().IsValid(),
 			"MsgWithContext.Context should carry a valid trace ID")
 		done <- struct{}{}
@@ -203,7 +203,7 @@ func TestIntegration_QueueSubscribeRecordsQueueName(t *testing.T) {
 
 	subject, queue := "integ.queue.sub", "integ-workers"
 	done := make(chan struct{}, 1)
-	_, err = conn.QueueSubscribe(subject, queue, func(m otelnats.MsgWithContext) {
+	_, err = conn.QueueSubscribe(subject, queue, func(m otelnats.Msg) {
 		done <- struct{}{}
 	})
 	require.NoError(t, err)
@@ -235,7 +235,7 @@ func TestIntegration_SubscribeConsumerSpanLinkedToProducer(t *testing.T) {
 
 	subject := "integ.linkage.test"
 	done := make(chan struct{}, 1)
-	_, err = conn.Subscribe(subject, func(m otelnats.MsgWithContext) {
+	_, err = conn.Subscribe(subject, func(m otelnats.Msg) {
 		done <- struct{}{}
 	})
 	require.NoError(t, err)
