@@ -55,7 +55,7 @@ func TestIntegration_ConsumeTraceContext(t *testing.T) {
 	require.NoError(t, err)
 
 	done := make(chan struct{}, 1)
-	cc, err := cons.Consume(func(m oteljetstream.Msg) {
+	cc, err := cons.Consume(func(m oteljetstream.MsgWithContext) {
 		assert.True(t, oteltrace.SpanFromContext(m.Context()).SpanContext().TraceID().IsValid(),
 			"MsgWithContext.Context should carry a valid trace ID")
 		done <- struct{}{}
@@ -170,9 +170,7 @@ func TestIntegration_ConsumerNextSingleMsg(t *testing.T) {
 
 	time.Sleep(300 * time.Millisecond)
 
-	fetchCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	msgCtx, msg, err := cons.Next(fetchCtx)
+	msgCtx, msg, err := cons.Next(ctx, jetstream.FetchMaxWait(5*time.Second))
 	require.NoError(t, err)
 	assert.True(t, oteltrace.SpanFromContext(msgCtx).SpanContext().TraceID().IsValid(),
 		"Next() should return context with valid trace ID")
@@ -227,7 +225,7 @@ func TestIntegration_FetchTraceContext(t *testing.T) {
 	for attempt := 0; attempt < 30; attempt++ {
 		batch, err = cons.Fetch(5, jetstream.FetchMaxWait(300*time.Millisecond))
 		require.NoError(t, err)
-		for m := range batch.Messages() {
+		for m := range batch.MessagesWithContext() {
 			received++
 			assert.True(t, oteltrace.SpanFromContext(m.Context()).SpanContext().TraceID().IsValid(),
 				"each fetched message should carry a valid trace ID")
@@ -287,7 +285,7 @@ func TestIntegration_FetchBytesTraceContext(t *testing.T) {
 	batch, err := cons.FetchBytes(1024, jetstream.FetchMaxWait(5*time.Second))
 	require.NoError(t, err)
 	n := 0
-	for m := range batch.Messages() {
+	for m := range batch.MessagesWithContext() {
 		n++
 		assert.True(t, oteltrace.SpanFromContext(m.Context()).SpanContext().TraceID().IsValid(),
 			"FetchBytes message should carry a valid trace ID")
@@ -335,7 +333,7 @@ func TestIntegration_FetchNoWaitTraceContext(t *testing.T) {
 	batch, err := cons.FetchNoWait(5)
 	require.NoError(t, err)
 	n := 0
-	for m := range batch.Messages() {
+	for m := range batch.MessagesWithContext() {
 		n++
 		assert.True(t, oteltrace.SpanFromContext(m.Context()).SpanContext().TraceID().IsValid(),
 			"FetchNoWait message should carry a valid trace ID")
@@ -377,7 +375,7 @@ func TestIntegration_PushConsumeTraceContext(t *testing.T) {
 	require.NoError(t, err)
 
 	done := make(chan struct{}, 1)
-	cc, err := pushCons.Consume(func(m oteljetstream.Msg) {
+	cc, err := pushCons.Consume(func(m oteljetstream.MsgWithContext) {
 		assert.True(t, oteltrace.SpanFromContext(m.Context()).SpanContext().TraceID().IsValid(),
 			"PushConsumer MsgWithContext should carry a valid trace ID")
 		done <- struct{}{}
@@ -436,7 +434,7 @@ func TestIntegration_OrderedConsumerTraceContext(t *testing.T) {
 	require.NoError(t, err)
 
 	done := make(chan struct{}, 1)
-	cc, err := orderedCons.Consume(func(m oteljetstream.Msg) {
+	cc, err := orderedCons.Consume(func(m oteljetstream.MsgWithContext) {
 		assert.True(t, oteltrace.SpanFromContext(m.Context()).SpanContext().TraceID().IsValid(),
 			"OrderedConsumer MsgWithContext should carry a valid trace ID")
 		done <- struct{}{}
