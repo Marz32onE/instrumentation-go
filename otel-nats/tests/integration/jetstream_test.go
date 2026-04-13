@@ -170,7 +170,9 @@ func TestIntegration_ConsumerNextSingleMsg(t *testing.T) {
 
 	time.Sleep(300 * time.Millisecond)
 
-	msgCtx, msg, err := cons.Next(ctx, jetstream.FetchMaxWait(5*time.Second))
+	fetchCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	msgCtx, msg, err := cons.Next(fetchCtx)
 	require.NoError(t, err)
 	assert.True(t, oteltrace.SpanFromContext(msgCtx).SpanContext().TraceID().IsValid(),
 		"Next() should return context with valid trace ID")
