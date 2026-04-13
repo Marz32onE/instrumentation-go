@@ -56,6 +56,7 @@ jobs:
           - otel-nats/tests/integration
           - otel-mongo/tests/integration
           - otel-mongo/v2/tests/integration
+          - otel-gorilla-ws/tests/integration
     steps:
       - uses: actions/checkout@v6
 
