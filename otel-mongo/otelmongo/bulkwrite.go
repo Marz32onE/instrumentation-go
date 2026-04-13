@@ -26,7 +26,7 @@ func buildBulkWriteModelsWithTrace(ctx context.Context, models []mongo.WriteMode
 			}
 			out = append(out, mongo.NewInsertOneModel().SetDocument(docWithTrace))
 		case *mongo.UpdateOneModel:
-			filter, update, ok := getUpdateOneModelFilterUpdate(vm)
+			update, ok := getUpdateOneModelFilterUpdate(vm)
 			if !ok {
 				out = append(out, m)
 				continue
@@ -35,18 +35,22 @@ func buildBulkWriteModelsWithTrace(ctx context.Context, models []mongo.WriteMode
 			if err != nil {
 				return nil, fmt.Errorf("otelmongo: bulk updateOne inject trace: %w", err)
 			}
-			out = append(out, mongo.NewUpdateOneModel().SetFilter(filter).SetUpdate(updateWithTrace))
+			newModel := *vm
+			newModel.Update = updateWithTrace
+			out = append(out, &newModel)
 		case *mongo.UpdateManyModel:
-			filter, update, ok := getUpdateManyModelFilterUpdate(vm)
+			manyUpdate, ok := getUpdateManyModelFilterUpdate(vm)
 			if !ok {
 				out = append(out, m)
 				continue
 			}
-			updateWithTrace, err := injectTraceIntoUpdate(ctx, update)
+			updateWithTrace, err := injectTraceIntoUpdate(ctx, manyUpdate)
 			if err != nil {
 				return nil, fmt.Errorf("otelmongo: bulk updateMany inject trace: %w", err)
 			}
-			out = append(out, mongo.NewUpdateManyModel().SetFilter(filter).SetUpdate(updateWithTrace))
+			newModel := *vm
+			newModel.Update = updateWithTrace
+			out = append(out, &newModel)
 		default:
 			out = append(out, m)
 		}
@@ -67,30 +71,28 @@ func getInsertOneModelDocument(m *mongo.InsertOneModel) (any, bool) {
 	return f.Interface(), true
 }
 
-// getUpdateOneModelFilterUpdate returns filter and update from *mongo.UpdateOneModel via reflection.
-func getUpdateOneModelFilterUpdate(m *mongo.UpdateOneModel) (filter, update any, ok bool) {
+// getUpdateOneModelFilterUpdate returns the update document from *mongo.UpdateOneModel via reflection.
+func getUpdateOneModelFilterUpdate(m *mongo.UpdateOneModel) (update any, ok bool) {
 	if m == nil {
-		return nil, nil, false
+		return nil, false
 	}
 	v := reflect.ValueOf(m).Elem()
-	filterF := v.FieldByName("Filter")
 	updateF := v.FieldByName("Update")
-	if !filterF.IsValid() || !updateF.IsValid() || !filterF.CanInterface() || !updateF.CanInterface() {
-		return nil, nil, false
+	if !updateF.IsValid() || !updateF.CanInterface() {
+		return nil, false
 	}
-	return filterF.Interface(), updateF.Interface(), true
+	return updateF.Interface(), true
 }
 
-// getUpdateManyModelFilterUpdate returns filter and update from *mongo.UpdateManyModel via reflection.
-func getUpdateManyModelFilterUpdate(m *mongo.UpdateManyModel) (filter, update any, ok bool) {
+// getUpdateManyModelFilterUpdate returns the update document from *mongo.UpdateManyModel via reflection.
+func getUpdateManyModelFilterUpdate(m *mongo.UpdateManyModel) (update any, ok bool) {
 	if m == nil {
-		return nil, nil, false
+		return nil, false
 	}
 	v := reflect.ValueOf(m).Elem()
-	filterF := v.FieldByName("Filter")
 	updateF := v.FieldByName("Update")
-	if !filterF.IsValid() || !updateF.IsValid() || !filterF.CanInterface() || !updateF.CanInterface() {
-		return nil, nil, false
+	if !updateF.IsValid() || !updateF.CanInterface() {
+		return nil, false
 	}
-	return filterF.Interface(), updateF.Interface(), true
+	return updateF.Interface(), true
 }

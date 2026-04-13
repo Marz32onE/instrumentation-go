@@ -159,29 +159,36 @@ func injectTraceIntoUpdate(ctx context.Context, update any) (any, error) {
 }
 
 // upsertSetField finds or creates the "$set" element in an operator update document
-// and appends the trace metadata key to it.
+// and appends the trace metadata key to it. When "$setOnInsert" is present it is also
+// annotated so that documents created via upsert carry the trace context.
 func upsertSetField(doc bson.D, meta TraceMetadata) (bson.D, error) {
+	foundSet := false
 	for i, elem := range doc {
-		if elem.Key == "$set" {
-			var setDoc bson.D
-			switch v := elem.Value.(type) {
-			case bson.D:
-				setDoc = v
-			default:
-				raw, err := bson.Marshal(v)
-				if err != nil {
-					return doc, fmt.Errorf("marshal $set value: %w", err)
-				}
-				if err := bson.Unmarshal(raw, &setDoc); err != nil {
-					return doc, fmt.Errorf("unmarshal $set value: %w", err)
-				}
+		if elem.Key != "$set" && elem.Key != "$setOnInsert" {
+			continue
+		}
+		var subDoc bson.D
+		switch v := elem.Value.(type) {
+		case bson.D:
+			subDoc = v
+		default:
+			raw, err := bson.Marshal(v)
+			if err != nil {
+				return doc, fmt.Errorf("marshal %s value: %w", elem.Key, err)
 			}
-			setDoc = append(setDoc, bson.E{Key: TraceMetadataKey, Value: meta})
-			doc[i].Value = setDoc
-			return doc, nil
+			if err := bson.Unmarshal(raw, &subDoc); err != nil {
+				return doc, fmt.Errorf("unmarshal %s value: %w", elem.Key, err)
+			}
+		}
+		subDoc = append(subDoc, bson.E{Key: TraceMetadataKey, Value: meta})
+		doc[i].Value = subDoc
+		if elem.Key == "$set" {
+			foundSet = true
 		}
 	}
-	// No existing $set — create one.
-	doc = append(doc, bson.E{Key: "$set", Value: bson.D{{Key: TraceMetadataKey, Value: meta}}})
+	if !foundSet {
+		// No existing $set — create one so existing documents are also annotated.
+		doc = append(doc, bson.E{Key: "$set", Value: bson.D{{Key: TraceMetadataKey, Value: meta}}})
+	}
 	return doc, nil
 }

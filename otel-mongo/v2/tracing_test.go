@@ -266,6 +266,48 @@ func Test_injectTraceIntoUpdate(t *testing.T) {
 	})
 }
 
+func Test_injectTraceIntoUpdate_DotNotationPreserved(t *testing.T) {
+	// mongo.M{"u._id": "v"} marshals to BSON with a literal field name "u._id" (a string
+	// containing a dot character). bson.Unmarshal into bson.D must return that same literal
+	// key — it must NOT expand it to a nested {"u": {"_id": "v"}} document.
+	// This test guards against a regression where the marshal/unmarshal round-trip inside
+	// injectTraceIntoUpdate would silently rewrite or drop dot-containing field names.
+	sr := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+	ctx, span := tp.Tracer("test").Start(context.Background(), "op")
+	defer span.End()
+
+	update := bson.D{{Key: "$setOnInsert", Value: bson.D{
+		{Key: "u._id", Value: "123"},
+		{Key: "p._id", Value: "444"},
+	}}}
+
+	out, err := injectTraceIntoUpdate(ctx, update)
+	require.NoError(t, err)
+	outD, ok := out.(bson.D)
+	require.True(t, ok)
+
+	uDotIDFound := false
+	pDotIDFound := false
+	for _, e := range outD {
+		if e.Key == "$setOnInsert" {
+			subDoc, ok := e.Value.(bson.D)
+			require.True(t, ok)
+			for _, s := range subDoc {
+				if s.Key == "u._id" {
+					uDotIDFound = true
+				}
+				if s.Key == "p._id" {
+					pDotIDFound = true
+				}
+			}
+		}
+	}
+	assert.True(t, uDotIDFound, "literal dot-notation key 'u._id' must survive the bson.Marshal/Unmarshal round-trip unchanged")
+	assert.True(t, pDotIDFound, "literal dot-notation key 'p._id' must survive the bson.Marshal/Unmarshal round-trip unchanged")
+}
+
 func Test_upsertSetField(t *testing.T) {
 	t.Run("existing_set_appends_metadata", func(t *testing.T) {
 		doc := bson.D{

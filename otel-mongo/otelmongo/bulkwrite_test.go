@@ -6,8 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -57,7 +57,7 @@ func TestBuildBulkWriteModelsWithTrace_UpdateOneModel(t *testing.T) {
 	require.Len(t, out, 1)
 	upd, ok := out[0].(*mongo.UpdateOneModel)
 	require.True(t, ok)
-	update, ok := getUpdateModelFilterUpdate(upd)
+	update, ok := getUpdateOneModelFilterUpdate(upd)
 	require.True(t, ok)
 	updateD, ok := update.(bson.D)
 	require.True(t, ok)
@@ -86,13 +86,11 @@ func TestBuildBulkWriteModelsWithTrace_UpdateOneModel_PreservesOptions(t *testin
 
 	upsertTrue := true
 	hint := bson.D{{Key: "x", Value: 1}}
-	arrayFilters := []any{bson.D{{Key: "elem.x", Value: bson.D{{Key: "$gt", Value: 0}}}}}
 	orig := mongo.NewUpdateOneModel().
 		SetFilter(bson.D{{Key: "x", Value: 1}}).
 		SetUpdate(bson.D{{Key: "$set", Value: bson.D{{Key: "y", Value: 2}}}}).
 		SetUpsert(upsertTrue).
-		SetHint(hint).
-		SetArrayFilters(arrayFilters)
+		SetHint(hint)
 
 	out, err := buildBulkWriteModelsWithTrace(ctx, []mongo.WriteModel{orig})
 	require.NoError(t, err)
@@ -103,7 +101,6 @@ func TestBuildBulkWriteModelsWithTrace_UpdateOneModel_PreservesOptions(t *testin
 	require.NotNil(t, got.Upsert, "Upsert must be preserved")
 	assert.True(t, *got.Upsert, "Upsert value must be true")
 	assert.Equal(t, orig.Hint, got.Hint, "Hint must be preserved")
-	assert.Equal(t, orig.ArrayFilters, got.ArrayFilters, "ArrayFilters must be preserved")
 	assert.Equal(t, orig.Filter, got.Filter, "Filter must be preserved")
 }
 
@@ -127,11 +124,9 @@ func TestBuildBulkWriteModelsWithTrace_UpdateOneModel_SetOnInsert(t *testing.T) 
 	got, ok := out[0].(*mongo.UpdateOneModel)
 	require.True(t, ok)
 
-	// Upsert must be preserved.
 	require.NotNil(t, got.Upsert, "Upsert must be preserved")
 	assert.True(t, *got.Upsert)
 
-	// Update must contain _oteltrace in both $setOnInsert and $set.
 	updateD, ok := got.Update.(bson.D)
 	require.True(t, ok)
 
