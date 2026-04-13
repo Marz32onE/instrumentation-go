@@ -50,10 +50,8 @@ func attrsToMap(s sdktrace.ReadOnlySpan) map[string]any {
 // otelUpgrader returns an OTelUpgrader for use in server-side tests.
 func otelUpgrader(appProtos []string) *otelgorillaws.Upgrader {
 	return &otelgorillaws.Upgrader{
-		Inner: websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool { return true },
-		},
-		AppSubprotocols: appProtos,
+		CheckOrigin:  func(r *http.Request) bool { return true },
+		Subprotocols: appProtos,
 	}
 }
 
@@ -155,8 +153,8 @@ func TestSpanAttributes(t *testing.T) {
 // ── Client-side scenario tests ────────────────────────────────────────────────
 
 // TestDial_ScenarioC: client proposes "otel-ws,json" but the plain server returns
-// "json" (no otel-ws+ prefix). Tracing must be disabled; payload must pass through
-// unchanged and no spans must be recorded.
+// "json" (no otel-ws+ prefix). Propagation must be disabled; payload must pass through
+// unchanged while send/receive spans are still recorded.
 func TestDial_ScenarioC(t *testing.T) {
 	sr := newTestTP(t)
 
@@ -195,12 +193,12 @@ func TestDial_ScenarioC(t *testing.T) {
 
 	// Passthrough: no envelope wrapping, payload returned as-is.
 	assert.Equal(t, payload, got, "payload must not be wrapped in tracing envelope")
-	assert.Empty(t, sr.Ended(), "no spans must be recorded in passthrough mode")
+	assert.Len(t, sr.Ended(), 2, "passthrough mode must still create send/receive spans")
 }
 
 // TestDial_ScenarioD: client proposes "otel-ws,json" but the server accepts no
 // subprotocol (returns ""). Dial must succeed and the Conn must operate in
-// passthrough mode (no spans, payload unchanged).
+// passthrough mode (payload unchanged, spans still emitted).
 func TestDial_ScenarioD(t *testing.T) {
 	sr := newTestTP(t)
 
@@ -236,11 +234,11 @@ func TestDial_ScenarioD(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, payload, got, "payload must not be wrapped in passthrough mode")
-	assert.Empty(t, sr.Ended(), "no spans must be recorded in passthrough mode")
+	assert.Len(t, sr.Ended(), 2, "passthrough mode must still create send/receive spans")
 }
 
 // TestDial_ScenarioE: client proposes no subprotocols. No otel-ws injection occurs
-// and the returned Conn operates in passthrough mode (no spans, no envelope wrapping).
+// and the returned Conn operates in passthrough mode (no envelope wrapping, spans still emitted).
 func TestDial_ScenarioE(t *testing.T) {
 	sr := newTestTP(t)
 
@@ -270,13 +268,13 @@ func TestDial_ScenarioE(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, payload, got, "payload must not be wrapped in Scenario E")
-	assert.Empty(t, sr.Ended(), "no spans must be recorded in Scenario E")
+	assert.Len(t, sr.Ended(), 2, "Scenario E must still create send/receive spans")
 }
 
 // ── Server-side scenario tests ────────────────────────────────────────────────
 
 // TestUpgrader_ScenarioF: plain client sends no subprotocols. OTelUpgrader must
-// accept the connection in passthrough mode (tracing disabled, no spans).
+// accept the connection in passthrough mode (tracing disabled, spans still emitted).
 func TestUpgrader_ScenarioF(t *testing.T) {
 	sr := newTestTP(t)
 
@@ -309,7 +307,7 @@ func TestUpgrader_ScenarioF(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, payload, got, "server must echo payload unchanged in Scenario F")
-	assert.Empty(t, sr.Ended(), "no spans must be recorded in Scenario F")
+	assert.Len(t, sr.Ended(), 2, "Scenario F must still create send/receive spans")
 }
 
 // TestUpgrader_ScenarioG: otel-ws client sends "otel-ws,json". OTelUpgrader must
@@ -326,7 +324,7 @@ func TestUpgrader_ScenarioG(t *testing.T) {
 		}
 		defer conn.Close()
 
-		assert.Equal(t, "otel-ws+json", conn.Subprotocol(), "server conn subprotocol")
+		assert.Equal(t, "json", conn.Subprotocol(), "server conn app subprotocol")
 
 		ctx, typ, data, err := conn.ReadMessage(context.Background())
 		if err != nil {
@@ -340,7 +338,7 @@ func TestUpgrader_ScenarioG(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Close()
 
-	assert.Equal(t, "otel-ws+json", conn.Subprotocol(), "client conn subprotocol")
+	assert.Equal(t, "json", conn.Subprotocol(), "client conn app subprotocol")
 
 	payload := []byte(`{"g":"tracing"}`)
 	require.NoError(t, conn.WriteMessage(context.Background(), websocket.TextMessage, payload))
@@ -352,8 +350,50 @@ func TestUpgrader_ScenarioG(t *testing.T) {
 	assert.NotEmpty(t, sr.Ended(), "spans must be recorded in Scenario G")
 }
 
+// TestUpgrader_ScenarioG_FromPrefixedClientToken verifies server-side parsing when
+// a client directly proposes "otel-ws+json" instead of separate "otel-ws,json".
+func TestUpgrader_ScenarioG_FromPrefixedClientToken(t *testing.T) {
+	sr := newTestTP(t)
+
+	up := otelUpgrader([]string{"json"})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := up.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade: %v", err)
+			return
+		}
+		defer conn.Close()
+
+		assert.Equal(t, "json", conn.Subprotocol(), "server conn app subprotocol")
+
+		ctx, typ, data, err := conn.ReadMessage(context.Background())
+		if err != nil {
+			return
+		}
+		_ = conn.WriteMessage(ctx, typ, data)
+	}))
+	defer srv.Close()
+
+	dialer := websocket.Dialer{Subprotocols: []string{"otel-ws+json"}}
+	raw, _, err := dialer.DialContext(context.Background(), wsURL(srv), nil)
+	require.NoError(t, err)
+	defer raw.Close()
+
+	assert.Equal(t, "otel-ws+json", raw.Subprotocol(), "client sees raw prefixed subprotocol")
+
+	payload := []byte(`{"gp":"prefixed-token"}`)
+	require.NoError(t, raw.WriteMessage(websocket.TextMessage, payload))
+
+	_, got, err := raw.ReadMessage()
+	require.NoError(t, err)
+	assert.NotEqual(t, payload, got, "plain client should receive propagation envelope")
+	assert.Contains(t, string(got), `"header"`, "envelope must contain tracing header field")
+	assert.Contains(t, string(got), `"data"`, "envelope must contain tracing data field")
+	assert.Len(t, sr.Ended(), 2, "server read/write must create spans")
+}
+
 // TestUpgrader_ScenarioH: plain client sends "json" (no otel-ws). OTelUpgrader must
-// accept with "json" and operate in passthrough mode (tracing disabled, no spans).
+// accept with "json" and operate in passthrough mode (tracing disabled, spans still emitted).
 func TestUpgrader_ScenarioH(t *testing.T) {
 	sr := newTestTP(t)
 
@@ -391,5 +431,5 @@ func TestUpgrader_ScenarioH(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, payload, got, "server must echo payload unchanged in Scenario H")
-	assert.Empty(t, sr.Ended(), "no spans must be recorded in Scenario H")
+	assert.Len(t, sr.Ended(), 2, "Scenario H must still create send/receive spans")
 }

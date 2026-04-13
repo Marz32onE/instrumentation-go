@@ -8,13 +8,14 @@
 //   - Server: Upgrader.Upgrade detects "otel-ws" in the client's list and responds
 //     with "otel-ws+<negotiated>". Tracing is enabled on acceptance.
 //
-// Connections without otel-ws negotiation operate in passthrough mode (no span
-// creation, no envelope wrapping). NewConn keeps tracing always on for callers
+// Connections without otel-ws negotiation operate in passthrough mode (no envelope
+// wrapping), but send/receive spans are still created. NewConn keeps tracing on for callers
 // that manage the WebSocket handshake themselves (backwards compatibility).
 //
 // Tracer initialization: Set the global TracerProvider and TextMapPropagator at
 // process startup (see example/) or pass WithTracerProvider/WithPropagators when
-// creating a Conn. Defaults to otel.GetTracerProvider() and otel.GetTextMapPropagator().
+// creating a Conn. If options are omitted, each Conn falls back to
+// otel.GetTracerProvider() and otel.GetTextMapPropagator().
 package otelgorillaws
 
 import (
@@ -47,6 +48,13 @@ type Conn struct {
 	tracingEnabled bool // true only after successful otel-ws subprotocol negotiation
 }
 
+// Subprotocol returns the application protocol negotiated for this connection.
+// For otel-ws negotiations, the "otel-ws+" prefix is removed (e.g. "otel-ws+json" -> "json").
+// For plain protocols it returns the original value.
+func (c *Conn) Subprotocol() string {
+	return appProtocolFromRaw(c.Conn.Subprotocol())
+}
+
 // NewConn wraps an existing gorilla *websocket.Conn with tracing always enabled.
 // This preserves backwards-compatible behaviour for callers that manage the
 // WebSocket handshake themselves. For spec-compliant subprotocol negotiation,
@@ -62,15 +70,10 @@ func newConn(conn *websocket.Conn, tracingEnabled bool, opts ...Option) *Conn {
 	return c
 }
 
-// WriteMessage sends a message over the WebSocket connection.
-// When tracing is enabled (otel-ws negotiated), it injects traceparent/tracestate
-// into a wire envelope and creates a "websocket.send" producer span.
-// When tracing is disabled, the message is sent as-is (passthrough).
+// WriteMessage sends a message over the WebSocket connection and always creates
+// a "websocket.send" producer span. Trace context injection into the wire envelope
+// happens only when otel-ws propagation is enabled.
 func (c *Conn) WriteMessage(ctx context.Context, messageType int, data []byte) error {
-	if !c.tracingEnabled {
-		return c.Conn.WriteMessage(messageType, data)
-	}
-
 	ctx, span := c.tracer.Start(ctx, "websocket.send",
 		trace.WithSpanKind(trace.SpanKindProducer),
 		trace.WithAttributes(
@@ -80,16 +83,20 @@ func (c *Conn) WriteMessage(ctx context.Context, messageType int, data []byte) e
 	)
 	defer span.End()
 
-	carrier := make(propagation.MapCarrier)
-	c.propagator.Inject(ctx, carrier)
+	payload := data
+	if c.tracingEnabled {
+		carrier := make(propagation.MapCarrier)
+		c.propagator.Inject(ctx, carrier)
 
-	encoded, err := marshalWire(carrier, data)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return err
+		encoded, err := marshalWire(carrier, data)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			return err
+		}
+		payload = encoded
 	}
-	if err := c.Conn.WriteMessage(messageType, encoded); err != nil {
+	if err := c.Conn.WriteMessage(messageType, payload); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return err
@@ -97,40 +104,50 @@ func (c *Conn) WriteMessage(ctx context.Context, messageType int, data []byte) e
 	return nil
 }
 
-// ReadMessage reads the next message from the WebSocket connection.
-// When tracing is enabled (otel-ws negotiated), it extracts traceparent/tracestate
-// from the wire envelope and creates a "websocket.receive" consumer span linked
-// to the sender span.
-// When tracing is disabled, the raw message is returned as-is (passthrough).
+// ReadMessage reads the next message from the WebSocket connection and always
+// creates a "websocket.receive" consumer span. Trace context extraction from
+// the wire envelope happens only when otel-ws propagation is enabled.
 func (c *Conn) ReadMessage(ctx context.Context) (context.Context, int, []byte, error) {
 	msgType, raw, err := c.Conn.ReadMessage()
 	if err != nil {
+		_, span := c.tracer.Start(ctx, "websocket.receive",
+			trace.WithSpanKind(trace.SpanKindConsumer),
+			trace.WithAttributes(attribute.Int("websocket.message.type", msgType)),
+		)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		span.End()
 		return ctx, msgType, raw, err
 	}
 
-	if !c.tracingEnabled {
-		return ctx, msgType, raw, nil
-	}
-
-	payload, hdrs, ok := tryUnmarshalWire(raw)
-	if !ok {
-		return ctx, msgType, raw, nil
-	}
-
-	carrier := propagation.MapCarrier(hdrs)
-	senderCtx := c.propagator.Extract(ctx, carrier)
-
+	outCtx := ctx
+	payload := raw
 	startOpts := []trace.SpanStartOption{
 		trace.WithSpanKind(trace.SpanKindConsumer),
-		trace.WithAttributes(
-			attribute.Int("websocket.message.type", msgType),
-			attribute.Int("messaging.message.body.size", len(payload)),
-		),
 	}
-	if sc := trace.SpanContextFromContext(senderCtx); sc.IsValid() {
-		startOpts = append(startOpts, trace.WithLinks(trace.Link{SpanContext: sc}))
+
+	if c.tracingEnabled {
+		decoded, hdrs, ok := tryUnmarshalWire(raw)
+		if ok {
+			payload = decoded
+
+			carrier := propagation.MapCarrier(hdrs)
+			senderCtx := c.propagator.Extract(ctx, carrier)
+			if sc := trace.SpanContextFromContext(senderCtx); sc.IsValid() {
+				startOpts = append(startOpts, trace.WithLinks(trace.Link{SpanContext: sc}))
+			}
+			outCtx = senderCtx
+		}
 	}
-	outCtx, span := c.tracer.Start(senderCtx, "websocket.receive", startOpts...)
+
+	outCtx, span := c.tracer.Start(outCtx, "websocket.receive",
+		append(startOpts,
+			trace.WithAttributes(
+				attribute.Int("websocket.message.type", msgType),
+				attribute.Int("messaging.message.body.size", len(payload)),
+			),
+		)...,
+	)
 	span.End()
 
 	return outCtx, msgType, payload, nil
@@ -175,9 +192,24 @@ func Dial(ctx context.Context, urlStr string, requestHeader http.Header, subprot
 		// Scenario C: server returned a non-otel app protocol → passthrough.
 		// Scenario D: server returned no protocol → passthrough (connection kept alive).
 		// Scenario G: server returned "otel-ws+<proto>" → tracing enabled.
-		tracingEnabled = strings.HasPrefix(negotiated, otelWSProtocol+"+")
+		tracingEnabled = isOTelWireProtocol(negotiated)
 	}
 	// Scenario E: otelInjected=false → tracingEnabled=false (passthrough).
 
 	return newConn(raw, tracingEnabled, opts...), resp, nil
+}
+
+func appProtocolFromRaw(rawProto string) string {
+	switch {
+	case strings.HasPrefix(rawProto, otelWSProtocol+"+"):
+		return strings.TrimPrefix(rawProto, otelWSProtocol+"+")
+	case rawProto == otelWSProtocol:
+		return ""
+	default:
+		return rawProto
+	}
+}
+
+func isOTelWireProtocol(rawProto string) bool {
+	return rawProto == otelWSProtocol || strings.HasPrefix(rawProto, otelWSProtocol+"+")
 }

@@ -7,33 +7,48 @@ import (
 )
 
 // Option configures a Conn.
-type Option func(*Conn)
+type Option func(*connOptions)
 
-// WithPropagators sets the global TextMapPropagator so all Conn instances in this process use it.
-// Call otel.SetTextMapPropagator at process startup as an alternative to passing this option.
+type connOptions struct {
+	propagator     propagation.TextMapPropagator
+	tracerProvider trace.TracerProvider
+}
+
+// WithPropagators sets a TextMapPropagator for this connection only.
+// If not provided, the global propagator is used.
 func WithPropagators(p propagation.TextMapPropagator) Option {
-	return func(c *Conn) {
+	return func(o *connOptions) {
 		if p != nil {
-			otel.SetTextMapPropagator(p)
+			o.propagator = p
 		}
 	}
 }
 
-// WithTracerProvider sets the global TracerProvider so all Conn instances in this process use it.
-// Call otel.SetTracerProvider at process startup as an alternative to passing this option.
+// WithTracerProvider sets a TracerProvider for this connection only.
+// If not provided, the global provider is used.
 func WithTracerProvider(tp trace.TracerProvider) Option {
-	return func(c *Conn) {
+	return func(o *connOptions) {
 		if tp != nil {
-			otel.SetTracerProvider(tp)
+			o.tracerProvider = tp
 		}
 	}
 }
 
 func applyOptions(c *Conn, opts []Option) {
-	for _, o := range opts {
-		o(c)
+	cfg := connOptions{}
+	for _, opt := range opts {
+		opt(&cfg)
 	}
-	// Always read tracer and propagator from otel globals (set by opts above or by process startup).
-	c.propagator = otel.GetTextMapPropagator()
-	c.tracer = otel.GetTracerProvider().Tracer(ScopeName, trace.WithInstrumentationVersion(Version()))
+
+	if cfg.propagator != nil {
+		c.propagator = cfg.propagator
+	} else {
+		c.propagator = otel.GetTextMapPropagator()
+	}
+
+	tp := cfg.tracerProvider
+	if tp == nil {
+		tp = otel.GetTracerProvider()
+	}
+	c.tracer = tp.Tracer(ScopeName, trace.WithInstrumentationVersion(Version()))
 }

@@ -2,6 +2,8 @@ package otelgorillaws
 
 import (
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -15,6 +17,19 @@ import (
 //   - Scenario G: client sends "otel-ws,json" → respond "otel-ws+json", tracing enabled
 //   - Scenario H: client sends "json" (no otel-ws) → accept normally, tracing disabled
 type Upgrader struct {
+	// Keep gorilla/websocket field names so callers can switch imports with minimal changes.
+	HandshakeTimeout  time.Duration
+	ReadBufferSize    int
+	WriteBufferSize   int
+	WriteBufferPool   websocket.BufferPool
+	CheckOrigin       func(r *http.Request) bool
+	EnableCompression bool
+	Error             func(w http.ResponseWriter, r *http.Request, status int, reason error)
+
+	// Subprotocols is equivalent to websocket.Upgrader.Subprotocols and represents
+	// application-level protocols (e.g. []string{"json"}).
+	Subprotocols []string
+
 	// Inner is the underlying gorilla Upgrader. Set CheckOrigin, ReadBufferSize,
 	// WriteBufferSize, Error, etc. on Inner as needed.
 	// Do NOT set Inner.Subprotocols — use AppSubprotocols instead.
@@ -43,15 +58,40 @@ type Upgrader struct {
 // gorilla performs normal matching.
 func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeader http.Header) (*Conn, error) {
 	clientProtos := websocket.Subprotocols(r)
-	otelRequested := containsProto(clientProtos, otelWSProtocol)
+	otelRequested, appClientProtos := splitClientProtocols(clientProtos)
 
 	// Work on a copy of Inner so we never mutate the caller's upgrader.
 	inner := u.Inner
+	if u.HandshakeTimeout != 0 {
+		inner.HandshakeTimeout = u.HandshakeTimeout
+	}
+	if u.ReadBufferSize != 0 {
+		inner.ReadBufferSize = u.ReadBufferSize
+	}
+	if u.WriteBufferSize != 0 {
+		inner.WriteBufferSize = u.WriteBufferSize
+	}
+	if u.WriteBufferPool != nil {
+		inner.WriteBufferPool = u.WriteBufferPool
+	}
+	if u.CheckOrigin != nil {
+		inner.CheckOrigin = u.CheckOrigin
+	}
+	if u.EnableCompression {
+		inner.EnableCompression = true
+	}
+	if u.Error != nil {
+		inner.Error = u.Error
+	}
+
+	appProtocols := u.Subprotocols
+	if len(appProtocols) == 0 && u.AppSubprotocols != nil {
+		appProtocols = u.AppSubprotocols
+	}
 
 	if otelRequested {
-		// Strip "otel-ws" from the client list, find the first matching app protocol.
-		appProtos := filterProto(clientProtos, otelWSProtocol)
-		negotiated := selectFirst(appProtos, u.AppSubprotocols)
+		// Match only app protocols (non otel-ws tokens).
+		negotiated := selectFirst(appClientProtos, appProtocols)
 
 		// Respond with "otel-ws+<negotiated>" so the client can detect otel-ws support.
 		// inner.Subprotocols must be nil so gorilla reads from responseHeader.
@@ -60,7 +100,7 @@ func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeade
 		responseHeader.Set("Sec-Websocket-Protocol", otelWSProtocol+"+"+negotiated)
 	} else {
 		// Scenarios F and H: normal gorilla protocol selection from AppSubprotocols.
-		inner.Subprotocols = u.AppSubprotocols
+		inner.Subprotocols = appProtocols
 	}
 
 	raw, err := inner.Upgrade(w, r, responseHeader)
@@ -71,32 +111,34 @@ func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeade
 	return newConn(raw, otelRequested), nil
 }
 
+// splitClientProtocols returns whether otel-ws propagation was requested and the
+// application protocol candidates with otel-ws tokens stripped.
+func splitClientProtocols(clientProtos []string) (bool, []string) {
+	appProtos := make([]string, 0, len(clientProtos))
+	otelRequested := false
+	for _, p := range clientProtos {
+		if p == otelWSProtocol {
+			otelRequested = true
+			continue
+		}
+		if strings.HasPrefix(p, otelWSProtocol+"+") {
+			otelRequested = true
+			trimmed := strings.TrimPrefix(p, otelWSProtocol+"+")
+			if trimmed != "" {
+				appProtos = append(appProtos, trimmed)
+			}
+			continue
+		}
+		appProtos = append(appProtos, p)
+	}
+	return otelRequested, appProtos
+}
+
 // cloneHeader returns a shallow clone of h (or a new empty header if h is nil).
 func cloneHeader(h http.Header) http.Header {
 	out := make(http.Header, len(h))
 	for k, v := range h {
 		out[k] = v
-	}
-	return out
-}
-
-// containsProto reports whether proto appears in list.
-func containsProto(list []string, proto string) bool {
-	for _, p := range list {
-		if p == proto {
-			return true
-		}
-	}
-	return false
-}
-
-// filterProto returns a new slice with all occurrences of proto removed.
-func filterProto(list []string, proto string) []string {
-	out := make([]string, 0, len(list))
-	for _, p := range list {
-		if p != proto {
-			out = append(out, p)
-		}
 	}
 	return out
 }
