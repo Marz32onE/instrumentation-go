@@ -25,7 +25,7 @@ import (
 const (
 	// ScopeName is the instrumentation scope name for Tracer creation (OTel contrib guideline).
 	ScopeName              = "github.com/Marz32onE/instrumentation-go/otel-nats/otelnats"
-	instrumentationVersion = "0.2.1"
+	instrumentationVersion = "0.2.2"
 	messagingSystem        = "nats"
 )
 
@@ -46,13 +46,14 @@ type MsgHandler func(m Msg)
 // Conn is a tracing-aware wrapper around *nats.Conn. API mirrors nats.Conn; the only
 // difference is Publish/PublishMsg take context.Context and handlers receive Msg.
 type Conn struct {
-	nc            *nats.Conn
-	tracer        trace.Tracer
-	propagator    propagation.TextMapPropagator
-	serverAttrs   []attribute.KeyValue
-	traceDest     string                   // Nats-Trace-Dest subject; empty means disabled
-	deliverTracer trace.Tracer             // NATS deliver span tracer (nil when disabled)
-	natsTP        *sdktrace.TracerProvider // independent TracerProvider for NATS service (nil when disabled)
+	nc             *nats.Conn
+	tracer         trace.Tracer
+	propagator     propagation.TextMapPropagator
+	tracingEnabled bool
+	serverAttrs    []attribute.KeyValue
+	traceDest      string                   // Nats-Trace-Dest subject; empty means disabled
+	deliverTracer  trace.Tracer             // NATS deliver span tracer (nil when disabled)
+	natsTP         *sdktrace.TracerProvider // independent TracerProvider for NATS service (nil when disabled)
 }
 
 // Option configures Conn. Per OTel contrib: accept TracerProvider and Propagators, not Tracer.
@@ -121,17 +122,22 @@ func newConn(nc *nats.Conn, opts ...Option) *Conn {
 	tracer := cfg.TracerProvider.Tracer(ScopeName, trace.WithInstrumentationVersion(Version()), trace.WithSchemaURL(semconv.SchemaURL))
 	serverAttrs := serverAttrsFromConn(nc)
 	c := &Conn{
-		nc:          nc,
-		tracer:      tracer,
-		propagator:  cfg.Propagators,
-		serverAttrs: serverAttrs,
-		traceDest:   cfg.TraceDest,
+		nc:             nc,
+		tracer:         tracer,
+		propagator:     cfg.Propagators,
+		tracingEnabled: natsTracingEnabled(),
+		serverAttrs:    serverAttrs,
+		traceDest:      cfg.TraceDest,
 	}
 	deliverServiceName := nc.ConnectedUrlRedacted()
 	if deliverServiceName == "" {
 		deliverServiceName = "nats://" + nc.ConnectedAddr()
 	}
 	natsTP, deliverTracer := initNATSProvider(deliverServiceName, serverAttrs)
+	if !c.tracingEnabled {
+		natsTP = nil
+		deliverTracer = nil
+	}
 	c.natsTP = natsTP
 	c.deliverTracer = deliverTracer
 	return c
@@ -211,7 +217,7 @@ func initNATSProvider(serviceName string, serverAttrs []attribute.KeyValue) (*sd
 // suitable for injecting into message headers so consumers link to the deliver span.
 // If deliver spans are disabled (no OTEL_EXPORTER_OTLP_ENDPOINT), returns ctx unchanged.
 func (c *Conn) StartDeliverSpan(ctx context.Context, subject string) context.Context {
-	if c.deliverTracer == nil {
+	if !c.tracingEnabled || c.deliverTracer == nil {
 		return ctx
 	}
 	deliverCtx, span := c.deliverTracer.Start(ctx, subject+" deliver",
@@ -226,7 +232,7 @@ func (c *Conn) StartDeliverSpan(ctx context.Context, subject string) context.Con
 // to origin and returns a context carrying that deliver span as remote parent for consumer spans.
 // If deliver spans are disabled or origin is invalid, ctx is returned unchanged.
 func (c *Conn) ConsumerContextWithDeliver(ctx context.Context, subject string, origin trace.SpanContext) context.Context {
-	if c.deliverTracer == nil || !origin.IsValid() {
+	if !c.tracingEnabled || c.deliverTracer == nil || !origin.IsValid() {
 		return ctx
 	}
 	detachedCtx := trace.ContextWithSpanContext(ctx, trace.SpanContext{})
@@ -241,7 +247,10 @@ func (c *Conn) ConsumerContextWithDeliver(ctx context.Context, subject string, o
 }
 
 // DeliverSpanEnabled reports whether the NATS deliver span feature is active.
-func (c *Conn) DeliverSpanEnabled() bool { return c.deliverTracer != nil }
+func (c *Conn) DeliverSpanEnabled() bool { return c.tracingEnabled && c.deliverTracer != nil }
+
+// TracingEnabled reports whether tracing and trace propagation are enabled.
+func (c *Conn) TracingEnabled() bool { return c.tracingEnabled }
 
 // TraceDest returns the configured Nats-Trace-Dest subject (empty if disabled).
 func (c *Conn) TraceDest() string { return c.traceDest }
@@ -297,6 +306,9 @@ func (c *Conn) PublishMsg(ctx context.Context, msg *nats.Msg) error {
 	if msg.Header == nil {
 		msg.Header = make(nats.Header)
 	}
+	if !c.tracingEnabled {
+		return c.nc.PublishMsg(msg)
+	}
 	if c.traceDest != "" {
 		msg.Header.Set("Nats-Trace-Dest", c.traceDest)
 	}
@@ -326,6 +338,11 @@ func (c *Conn) Request(ctx context.Context, subject string, data []byte, timeout
 		Subject: subject,
 		Data:    data,
 		Header:  make(nats.Header),
+	}
+	if !c.tracingEnabled {
+		reqCtx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		return c.nc.RequestMsgWithContext(reqCtx, msg)
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -362,6 +379,10 @@ func (c *Conn) QueueSubscribe(subject, queue string, handler MsgHandler) (*nats.
 
 func (c *Conn) wrapHandler(subject, queue string, handler MsgHandler) nats.MsgHandler {
 	return func(msg *nats.Msg) {
+		if !c.tracingEnabled {
+			handler(Msg{Msg: msg, Ctx: context.Background()})
+			return
+		}
 		msgCtx := c.propagator.Extract(context.Background(), &HeaderCarrier{H: msg.Header})
 		originSpanCtx := trace.SpanContextFromContext(msgCtx)
 		consumerParentCtx := c.ConsumerContextWithDeliver(context.Background(), subject, originSpanCtx)

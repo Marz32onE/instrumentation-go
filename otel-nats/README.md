@@ -31,6 +31,21 @@ otel-nats/
 
 ## Usage
 
+### Tracing feature flags
+
+`otel-nats` (`otelnats` + `oteljetstream`) supports:
+
+- `OTEL_INSTRUMENTATION_GO_TRACING_ENABLED` (global master switch)
+- `OTEL_NATS_TRACING_ENABLED` (nats module switch)
+
+Defaults: enabled when unset. Values `false/0/no/off` disable.
+
+Priority:
+1. Global off disables all nats tracing regardless of module flag.
+2. Otherwise module flag controls nats tracing.
+
+When disabled, both span creation and W3C header propagation are turned off.
+
 ### 1. Initialize provider and propagator (application responsibility)
 
 Create a TracerProvider (e.g. OTLP) and set the global provider and propagator once at startup. See **example/main.go** for a full runnable.
