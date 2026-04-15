@@ -120,6 +120,9 @@ func (c *consumerImpl) Next(ctx context.Context, opts ...jetstream.FetchOpt) (co
 	if err != nil {
 		return nil, nil, err
 	}
+	if !c.conn.TracingEnabled() {
+		return context.Background(), msg, nil
+	}
 	h := msg.Headers()
 	if h == nil {
 		h = make(nats.Header)
@@ -185,6 +188,10 @@ func (c *pushConsumerImpl) CachedInfo() *ConsumerInfo {
 func wrapConsumeHandler(conn *otelnats.Conn, consumerName string, handler MsgHandler) func(jetstream.Msg) {
 	tracer, prop := conn.TraceContext()
 	return func(msg jetstream.Msg) {
+		if !conn.TracingEnabled() {
+			handler(Msg{Msg: msg, Ctx: context.Background()})
+			return
+		}
 		h := msg.Headers()
 		if h == nil {
 			h = make(nats.Header)
@@ -250,6 +257,10 @@ func wrapMessageBatch(conn *otelnats.Conn, consumerName string, raw jetstream.Me
 				lastSpan.End()
 				lastSpan = nil
 			}
+			if !conn.TracingEnabled() {
+				ch <- Msg{Msg: msg, Ctx: context.Background()}
+				continue
+			}
 			h := msg.Headers()
 			if h == nil {
 				h = make(nats.Header)
@@ -301,6 +312,9 @@ func (m *messagesContextImpl) Next(opts ...jetstream.NextOpt) (context.Context, 
 	msg, err := m.iter.Next(opts...)
 	if err != nil {
 		return nil, nil, err
+	}
+	if !m.conn.TracingEnabled() {
+		return context.Background(), msg, nil
 	}
 	h := msg.Headers()
 	if h == nil {

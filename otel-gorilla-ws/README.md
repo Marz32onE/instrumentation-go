@@ -25,6 +25,21 @@ go get github.com/Marz32onE/instrumentation-go/otel-gorilla-ws
 
 ## Usage
 
+### Tracing feature flags
+
+`otel-gorilla-ws` supports:
+
+- `OTEL_INSTRUMENTATION_GO_TRACING_ENABLED` (global master switch)
+- `OTEL_GORILLA_WS_TRACING_ENABLED` (ws module switch)
+
+Defaults: enabled when unset. Values `false/0/no/off` disable.
+
+Priority:
+1. Global off disables ws tracing regardless of module flag.
+2. Otherwise module flag controls ws tracing.
+
+When disabled, both send/receive spans and trace-context propagation are turned off.
+
 ```go
 raw, _, _ := websocket.DefaultDialer.DialContext(ctx, serverURL, nil)
 conn := otelgorillaws.NewConn(raw)

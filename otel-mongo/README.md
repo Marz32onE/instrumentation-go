@@ -41,6 +41,21 @@ otel-mongo/
 
 ## Usage
 
+### Tracing feature flags
+
+`otel-mongo` (v1 + v2) supports one global switch and one module switch:
+
+- `OTEL_INSTRUMENTATION_GO_TRACING_ENABLED` (global master switch)
+- `OTEL_MONGO_TRACING_ENABLED` (mongo module switch)
+
+Defaults: both enabled when unset. Values `false/0/no/off` disable.
+
+Priority:
+1. If global is disabled, mongo tracing is disabled regardless of module flag.
+2. If global is enabled, module flag controls mongo tracing.
+
+When tracing is disabled, both span creation and `_oteltrace` propagation are turned off.
+
 ### 1. Initialize provider and propagator (application responsibility)
 
 See **example/main.go**. In short: create TracerProvider (e.g. OTLP), set `otel.SetTracerProvider(tp)` and `otel.SetTextMapPropagator(prop)`, defer shutdown.

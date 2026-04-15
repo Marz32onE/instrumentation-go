@@ -46,6 +46,7 @@ type Conn struct {
 	propagator     propagation.TextMapPropagator
 	tracer         trace.Tracer
 	tracingEnabled bool // true only after successful otel-ws subprotocol negotiation
+	featureEnabled bool // env feature flag controlling both span and propagation
 }
 
 // Subprotocol returns the application protocol negotiated for this connection.
@@ -65,7 +66,11 @@ func NewConn(conn *websocket.Conn, opts ...Option) *Conn {
 
 // newConn is the internal constructor used by Dial and Upgrader.Upgrade.
 func newConn(conn *websocket.Conn, tracingEnabled bool, opts ...Option) *Conn {
-	c := &Conn{Conn: conn, tracingEnabled: tracingEnabled}
+	c := &Conn{
+		Conn:           conn,
+		tracingEnabled: tracingEnabled,
+		featureEnabled: wsTracingEnabled(),
+	}
 	applyOptions(c, opts)
 	return c
 }
@@ -74,6 +79,9 @@ func newConn(conn *websocket.Conn, tracingEnabled bool, opts ...Option) *Conn {
 // a "websocket.send" producer span. Trace context injection into the wire envelope
 // happens only when otel-ws propagation is enabled.
 func (c *Conn) WriteMessage(ctx context.Context, messageType int, data []byte) error {
+	if !c.featureEnabled {
+		return c.Conn.WriteMessage(messageType, data)
+	}
 	ctx, span := c.tracer.Start(ctx, "websocket.send",
 		trace.WithSpanKind(trace.SpanKindProducer),
 		trace.WithAttributes(
@@ -108,6 +116,10 @@ func (c *Conn) WriteMessage(ctx context.Context, messageType int, data []byte) e
 // creates a "websocket.receive" consumer span. Trace context extraction from
 // the wire envelope happens only when otel-ws propagation is enabled.
 func (c *Conn) ReadMessage(ctx context.Context) (context.Context, int, []byte, error) {
+	if !c.featureEnabled {
+		msgType, raw, err := c.Conn.ReadMessage()
+		return ctx, msgType, raw, err
+	}
 	msgType, raw, err := c.Conn.ReadMessage()
 	if err != nil {
 		_, span := c.tracer.Start(ctx, "websocket.receive",

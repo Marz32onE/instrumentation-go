@@ -121,6 +121,9 @@ func (j *jsImpl) PublishMsg(ctx context.Context, msg *nats.Msg, opts ...jetstrea
 	if msg.Header == nil {
 		msg.Header = make(nats.Header)
 	}
+	if !j.conn.TracingEnabled() {
+		return j.js.PublishMsg(ctx, msg, opts...)
+	}
 	if dest := j.conn.TraceDest(); dest != "" {
 		msg.Header.Set("Nats-Trace-Dest", dest)
 	}

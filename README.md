@@ -25,6 +25,19 @@ go get github.com/Marz32onE/instrumentation-go/otel-gorilla-ws@otel-gorilla-ws/v
 
 Then import the subpackages in your code (e.g. `.../otel-mongo/otelmongo`, `.../otel-nats/otelnats`).
 
+## Tracing feature flags
+
+All wrappers support one global switch plus module-level switches.
+
+| Env var | Scope | Default | Effect |
+|---------|-------|---------|--------|
+| `OTEL_INSTRUMENTATION_GO_TRACING_ENABLED` | All modules | enabled | Global master switch. `false/0/no/off` disables tracing and propagation in all wrappers. |
+| `OTEL_MONGO_TRACING_ENABLED` | `otel-mongo` + `otel-mongo/v2` | enabled | Module switch for Mongo wrappers. |
+| `OTEL_NATS_TRACING_ENABLED` | `otelnats` + `oteljetstream` | enabled | Module switch for NATS wrappers. |
+| `OTEL_GORILLA_WS_TRACING_ENABLED` | `otel-gorilla-ws` | enabled | Module switch for WebSocket wrapper. |
+
+Priority: global switch first, then module switch. If global is off, module switches are ignored.
+
 ## Layout
 
 ```
