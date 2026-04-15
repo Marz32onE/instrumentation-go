@@ -1,11 +1,29 @@
 package otelmongo
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestMongoTracingEnabled_DefaultTrue(t *testing.T) {
+	prev, existed := os.LookupEnv(envMongoTracingEnabled)
+	_ = os.Unsetenv(envMongoTracingEnabled)
+	t.Cleanup(func() {
+		if existed {
+			_ = os.Setenv(envMongoTracingEnabled, prev)
+		} else {
+			_ = os.Unsetenv(envMongoTracingEnabled)
+		}
+	})
+	if !mongoTracingEnabled() {
+		t.Fatal("expected tracing enabled when env var is unset")
+	}
+}
+
+func TestMongoTracingEnabled_EmptyStringIsEnabled(t *testing.T) {
 	t.Setenv(envMongoTracingEnabled, "")
 	if !mongoTracingEnabled() {
-		t.Fatal("expected tracing enabled by default")
+		t.Fatal("expected empty string to mean enabled")
 	}
 }
 

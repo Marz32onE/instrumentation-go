@@ -1,11 +1,29 @@
 package otelgorillaws
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestWSTracingEnabled_DefaultTrue(t *testing.T) {
+	prev, existed := os.LookupEnv(envWSTracingEnabled)
+	_ = os.Unsetenv(envWSTracingEnabled)
+	t.Cleanup(func() {
+		if existed {
+			_ = os.Setenv(envWSTracingEnabled, prev)
+		} else {
+			_ = os.Unsetenv(envWSTracingEnabled)
+		}
+	})
+	if !wsTracingEnabled() {
+		t.Fatal("expected tracing enabled when env var is unset")
+	}
+}
+
+func TestWSTracingEnabled_EmptyStringIsEnabled(t *testing.T) {
 	t.Setenv(envWSTracingEnabled, "")
 	if !wsTracingEnabled() {
-		t.Fatal("expected tracing enabled by default")
+		t.Fatal("expected empty string to mean enabled")
 	}
 }
 

@@ -133,13 +133,9 @@ func newConn(nc *nats.Conn, opts ...Option) *Conn {
 	if deliverServiceName == "" {
 		deliverServiceName = "nats://" + nc.ConnectedAddr()
 	}
-	natsTP, deliverTracer := initNATSProvider(deliverServiceName, serverAttrs)
-	if !c.tracingEnabled {
-		natsTP = nil
-		deliverTracer = nil
+	if c.tracingEnabled {
+		c.natsTP, c.deliverTracer = initNATSProvider(deliverServiceName, serverAttrs)
 	}
-	c.natsTP = natsTP
-	c.deliverTracer = deliverTracer
 	return c
 }
 

@@ -95,10 +95,10 @@ func ConnectWithOptions(traceOpts []ClientOption, opts ...*options.ClientOptions
 		return nil, err
 	}
 	addr, port := parseServerFromURI(merged.GetURI())
-	mongoTP, deliverTracer := initMongoProvider(addr, port)
-	if !mongoTracingEnabled() {
-		mongoTP = nil
-		deliverTracer = nil
+	var mongoTP *sdktrace.TracerProvider
+	var deliverTracer trace.Tracer
+	if mongoTracingEnabled() {
+		mongoTP, deliverTracer = initMongoProvider(addr, port)
 	}
 	return &Client{Client: mc, serverAddr: addr, serverPort: port, mongoTP: mongoTP, deliverTracer: deliverTracer}, nil
 }

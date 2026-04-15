@@ -1,11 +1,29 @@
 package otelnats
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestNATSTracingEnabled_DefaultTrue(t *testing.T) {
+	prev, existed := os.LookupEnv(envNATSTracingEnabled)
+	_ = os.Unsetenv(envNATSTracingEnabled)
+	t.Cleanup(func() {
+		if existed {
+			_ = os.Setenv(envNATSTracingEnabled, prev)
+		} else {
+			_ = os.Unsetenv(envNATSTracingEnabled)
+		}
+	})
+	if !natsTracingEnabled() {
+		t.Fatal("expected tracing enabled when env var is unset")
+	}
+}
+
+func TestNATSTracingEnabled_EmptyStringIsEnabled(t *testing.T) {
 	t.Setenv(envNATSTracingEnabled, "")
 	if !natsTracingEnabled() {
-		t.Fatal("expected tracing enabled by default")
+		t.Fatal("expected empty string to mean enabled")
 	}
 }
 
