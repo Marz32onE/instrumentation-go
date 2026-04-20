@@ -177,7 +177,6 @@ func newTracerProvider() (*sdktrace.TracerProvider, error) {
 
 	exp, err := otlptracegrpc.New(context.Background(),
 		otlptracegrpc.WithEndpoint(endpoint),
-		otlptracegrpc.WithInsecure(),
 	)
 	if err != nil {
 		return nil, err
