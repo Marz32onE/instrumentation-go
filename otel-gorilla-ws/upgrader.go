@@ -45,8 +45,9 @@ type Upgrader struct {
 // Upgrade upgrades the HTTP connection to WebSocket with otel-ws negotiation.
 //
 // When the client includes "otel-ws" in its Sec-WebSocket-Protocol header,
-// the server responds with "otel-ws+<negotiated>" and the returned Conn has
-// tracing enabled (Scenario G). Otherwise the connection is accepted with
+// the server responds with "otel-ws" (no app protocol) or "otel-ws+<negotiated>"
+// (with app protocol), and the returned Conn has tracing enabled (Scenario G).
+// Otherwise the connection is accepted with
 // normal protocol selection and the returned Conn operates in passthrough
 // mode (Scenarios F and H).
 //
@@ -93,11 +94,16 @@ func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeade
 		// Match only app protocols (non otel-ws tokens).
 		negotiated := selectFirst(appClientProtos, appProtocols)
 
-		// Respond with "otel-ws+<negotiated>" so the client can detect otel-ws support.
-		// inner.Subprotocols must be nil so gorilla reads from responseHeader.
+		// Respond with "otel-ws" (no app proto) or "otel-ws+<negotiated>" so the
+		// client can detect otel-ws support. inner.Subprotocols must be nil so
+		// gorilla reads from responseHeader.
 		inner.Subprotocols = nil
 		responseHeader = cloneHeader(responseHeader)
-		responseHeader.Set("Sec-Websocket-Protocol", otelWSProtocol+"+"+negotiated)
+		proto := otelWSProtocol
+		if negotiated != "" {
+			proto += "+" + negotiated
+		}
+		responseHeader.Set("Sec-Websocket-Protocol", proto)
 	} else {
 		// Scenarios F and H: normal gorilla protocol selection from AppSubprotocols.
 		inner.Subprotocols = appProtocols
