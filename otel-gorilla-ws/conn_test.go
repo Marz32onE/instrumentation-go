@@ -279,7 +279,9 @@ func TestUpgrader_ScenarioF(t *testing.T) {
 	sr := newTestTP(t)
 
 	up := otelUpgrader([]string{"json"})
+	handlerDone := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer close(handlerDone)
 		conn, err := up.Upgrade(w, r, nil)
 		if err != nil {
 			t.Errorf("upgrade: %v", err)
@@ -307,6 +309,7 @@ func TestUpgrader_ScenarioF(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, payload, got, "server must echo payload unchanged in Scenario F")
+	<-handlerDone
 	assert.Len(t, sr.Ended(), 2, "Scenario F must still create send/receive spans")
 }
 
@@ -356,7 +359,9 @@ func TestUpgrader_ScenarioG_FromPrefixedClientToken(t *testing.T) {
 	sr := newTestTP(t)
 
 	up := otelUpgrader([]string{"json"})
+	handlerDone := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer close(handlerDone)
 		conn, err := up.Upgrade(w, r, nil)
 		if err != nil {
 			t.Errorf("upgrade: %v", err)
@@ -389,6 +394,7 @@ func TestUpgrader_ScenarioG_FromPrefixedClientToken(t *testing.T) {
 	assert.NotEqual(t, payload, got, "plain client should receive propagation envelope")
 	assert.Contains(t, string(got), `"header"`, "envelope must contain tracing header field")
 	assert.Contains(t, string(got), `"data"`, "envelope must contain tracing data field")
+	<-handlerDone
 	assert.Len(t, sr.Ended(), 2, "server read/write must create spans")
 }
 
@@ -398,7 +404,9 @@ func TestUpgrader_ScenarioH(t *testing.T) {
 	sr := newTestTP(t)
 
 	up := otelUpgrader([]string{"json"})
+	handlerDone := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer close(handlerDone)
 		conn, err := up.Upgrade(w, r, nil)
 		if err != nil {
 			t.Errorf("upgrade: %v", err)
@@ -431,5 +439,6 @@ func TestUpgrader_ScenarioH(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, payload, got, "server must echo payload unchanged in Scenario H")
+	<-handlerDone
 	assert.Len(t, sr.Ended(), 2, "Scenario H must still create send/receive spans")
 }
