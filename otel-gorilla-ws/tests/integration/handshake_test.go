@@ -36,6 +36,48 @@ func wsURL(srv *httptest.Server) string {
 	return "ws" + strings.TrimPrefix(srv.URL, "http")
 }
 
+// TestIntegration_Handshake_OtelWSOnlyNoAppProtocol verifies that when the
+// client offers only "otel-ws" (no app subprotocol — the JS otel-rxjs-ws
+// default), the server responds with bare "otel-ws" and NOT "otel-ws+".
+func TestIntegration_Handshake_OtelWSOnlyNoAppProtocol(t *testing.T) {
+	upgrader := &otelgorillaws.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+		// No AppSubprotocols: accept-any semantics, negotiated will be "".
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		require.NoError(t, err)
+		defer conn.Close()
+
+		assert.Equal(t, "", conn.Subprotocol()) // no app proto negotiated
+
+		ctx, typ, payload, err := conn.ReadMessage(context.Background())
+		require.NoError(t, err)
+		_ = conn.WriteMessage(ctx, typ, payload)
+	}))
+	defer srv.Close()
+
+	// Simulate JS client: offer only "otel-ws" with no app subprotocol.
+	rawDialer := &websocket.Dialer{Subprotocols: []string{"otel-ws"}}
+	rawConn, _, err := rawDialer.Dial(wsURL(srv), nil)
+	require.NoError(t, err)
+	defer rawConn.Close()
+
+	// Server must respond with bare "otel-ws", NOT "otel-ws+".
+	assert.Equal(t, "otel-ws", rawConn.Subprotocol())
+
+	// Send a message and receive the echoed response. Because the server Conn has
+	// tracingEnabled=true it wraps the outgoing message in the otel wire envelope,
+	// so the raw client sees {"header":...,"data":...} — not the original payload.
+	// We only verify the round-trip completes without error.
+	msg := []byte(`{"hello":"world"}`)
+	require.NoError(t, rawConn.WriteMessage(websocket.TextMessage, msg))
+	_, got, err := rawConn.ReadMessage()
+	require.NoError(t, err)
+	assert.Contains(t, string(got), `"data"`, "server wraps response in otel wire envelope")
+}
+
 func TestIntegration_Handshake_SubprotocolNegotiation(t *testing.T) {
 	recorder := newIntegrationTP(t)
 
