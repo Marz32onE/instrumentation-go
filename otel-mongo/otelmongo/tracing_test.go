@@ -124,7 +124,7 @@ func Test_injectTraceIntoUpdate_DotNotationPreserved(t *testing.T) {
 		{Key: "p._id", Value: "444"},
 	}}}
 
-	out, err := injectTraceIntoUpdate(ctx, update)
+	out, err := injectTraceIntoUpdate(ctx, update, otel.GetTextMapPropagator())
 	require.NoError(t, err)
 	outD, ok := out.(bson.D)
 	require.True(t, ok)

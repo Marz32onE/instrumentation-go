@@ -23,7 +23,7 @@ func TestBuildBulkWriteModelsWithTrace_InsertOneModel(t *testing.T) {
 	models := []mongo.WriteModel{
 		mongo.NewInsertOneModel().SetDocument(bson.D{{Key: "a", Value: 1}}),
 	}
-	out, err := buildBulkWriteModelsWithTrace(ctx, models)
+	out, err := buildBulkWriteModelsWithTrace(ctx, models, otel.GetTextMapPropagator())
 	require.NoError(t, err)
 	require.Len(t, out, 1)
 	ins, ok := out[0].(*mongo.InsertOneModel)
@@ -52,7 +52,7 @@ func TestBuildBulkWriteModelsWithTrace_UpdateOneModel(t *testing.T) {
 	models := []mongo.WriteModel{
 		mongo.NewUpdateOneModel().SetFilter(bson.D{{Key: "x", Value: 1}}).SetUpdate(bson.D{{Key: "$set", Value: bson.D{{Key: "y", Value: 2}}}}),
 	}
-	out, err := buildBulkWriteModelsWithTrace(ctx, models)
+	out, err := buildBulkWriteModelsWithTrace(ctx, models, otel.GetTextMapPropagator())
 	require.NoError(t, err)
 	require.Len(t, out, 1)
 	upd, ok := out[0].(*mongo.UpdateOneModel)
@@ -94,7 +94,7 @@ func TestBuildBulkWriteModelsWithTrace_UpdateOneModel_PreservesOptions(t *testin
 		SetHint(hint).
 		SetArrayFilters(arrayFilters)
 
-	out, err := buildBulkWriteModelsWithTrace(ctx, []mongo.WriteModel{orig})
+	out, err := buildBulkWriteModelsWithTrace(ctx, []mongo.WriteModel{orig}, otel.GetTextMapPropagator())
 	require.NoError(t, err)
 	require.Len(t, out, 1)
 
@@ -120,7 +120,7 @@ func TestBuildBulkWriteModelsWithTrace_UpdateOneModel_SetOnInsert(t *testing.T) 
 		SetUpdate(bson.D{{Key: "$setOnInsert", Value: bson.D{{Key: "u._id", Value: "123"}, {Key: "p._id", Value: "444"}}}}).
 		SetUpsert(upsertTrue)
 
-	out, err := buildBulkWriteModelsWithTrace(ctx, []mongo.WriteModel{orig})
+	out, err := buildBulkWriteModelsWithTrace(ctx, []mongo.WriteModel{orig}, otel.GetTextMapPropagator())
 	require.NoError(t, err)
 	require.Len(t, out, 1)
 
@@ -169,7 +169,7 @@ func TestBuildBulkWriteModelsWithTrace_OtherModelsUnchanged(t *testing.T) {
 	ctx := context.Background()
 	del := mongo.NewDeleteOneModel().SetFilter(bson.D{{Key: "_id", Value: 1}})
 	models := []mongo.WriteModel{del}
-	out, err := buildBulkWriteModelsWithTrace(ctx, models)
+	out, err := buildBulkWriteModelsWithTrace(ctx, models, otel.GetTextMapPropagator())
 	require.NoError(t, err)
 	require.Len(t, out, 1)
 	assert.Same(t, del, out[0])
