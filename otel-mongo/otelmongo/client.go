@@ -193,12 +193,10 @@ func initMongoProvider(addr string, port int) (*sdktrace.TracerProvider, trace.T
 	if strings.HasPrefix(endpoint, "http://") || strings.HasPrefix(endpoint, "https://") {
 		exp, err = otlptracehttp.New(ctx,
 			otlptracehttp.WithEndpointURL(endpoint),
-			otlptracehttp.WithInsecure(),
 		)
 	} else {
 		exp, err = otlptracegrpc.New(ctx,
 			otlptracegrpc.WithEndpoint(endpoint),
-			otlptracegrpc.WithInsecure(),
 		)
 	}
 	if err != nil {

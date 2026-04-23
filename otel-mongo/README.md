@@ -121,7 +121,7 @@ The MongoDB driver monitor (`contrib otelmongo.NewMonitor`) emits command spans 
 Use `SkipDBOperationsExporter` to drop selected DB operation spans before export:
 
 ```go
-exp, err := otlptracegrpc.New(ctx, otlptracegrpc.WithEndpoint(endpoint), otlptracegrpc.WithInsecure())
+exp, err := otlptracegrpc.New(ctx, otlptracegrpc.WithEndpoint(endpoint))
 if err != nil { log.Fatal(err) }
 
 // Drop db.operation.name in skip list (case-insensitive).
