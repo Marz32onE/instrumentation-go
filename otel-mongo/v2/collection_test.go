@@ -80,6 +80,7 @@ func TestNewCollection(t *testing.T) {
 func integrationTP(t *testing.T) (trace.TracerProvider, *tracetest.SpanRecorder) {
 	t.Helper()
 	enableTracing(t)
+	t.Setenv(envMongoPropagationEnabled, "1")
 	sr := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
 	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
