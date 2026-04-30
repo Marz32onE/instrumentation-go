@@ -26,6 +26,8 @@ var mongoURI string
 
 // TestMain starts a MongoDB replica set container, runs all tests, then stops it.
 func TestMain(m *testing.M) {
+	_ = os.Setenv("OTEL_INSTRUMENTATION_GO_TRACING_ENABLED", "1")
+	_ = os.Setenv("OTEL_MONGO_TRACING_ENABLED", "1")
 	ctx := context.Background()
 
 	container, err := tcmongo.Run(ctx, "mongo:7.0",

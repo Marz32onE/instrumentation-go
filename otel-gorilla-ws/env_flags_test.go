@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestWSTracingEnabled_DefaultTrue(t *testing.T) {
+func TestWSTracingEnabled_DefaultFalse(t *testing.T) {
 	prev, existed := os.LookupEnv(envWSTracingEnabled)
 	_ = os.Unsetenv(envWSTracingEnabled)
 	t.Cleanup(func() {
@@ -15,12 +15,13 @@ func TestWSTracingEnabled_DefaultTrue(t *testing.T) {
 			_ = os.Unsetenv(envWSTracingEnabled)
 		}
 	})
-	if !wsTracingEnabled() {
-		t.Fatal("expected tracing enabled when env var is unset")
+	if wsTracingEnabled() {
+		t.Fatal("expected tracing disabled when env var is unset")
 	}
 }
 
 func TestWSTracingEnabled_EmptyStringIsEnabled(t *testing.T) {
+	t.Setenv(envGlobalTracingEnabled, "")
 	t.Setenv(envWSTracingEnabled, "")
 	if !wsTracingEnabled() {
 		t.Fatal("expected empty string to mean enabled")

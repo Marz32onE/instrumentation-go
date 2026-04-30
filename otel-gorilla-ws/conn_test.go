@@ -28,6 +28,8 @@ var plainUpgrader = websocket.Upgrader{
 // sets it as the global provider, and registers t.Cleanup to shut it down.
 func newTestTP(t *testing.T) *tracetest.SpanRecorder {
 	t.Helper()
+	t.Setenv("OTEL_INSTRUMENTATION_GO_TRACING_ENABLED", "1")
+	t.Setenv("OTEL_GORILLA_WS_TRACING_ENABLED", "1")
 	sr := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
 	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })

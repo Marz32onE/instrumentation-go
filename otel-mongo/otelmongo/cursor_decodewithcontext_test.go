@@ -16,6 +16,7 @@ import (
 )
 
 func TestCursorDecodeWithContext_NewTraceIDAndLinksOriginTrace(t *testing.T) {
+	enableTracing(t)
 	// Ensure the document trace metadata encoding/decoding is deterministic in tests.
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
 

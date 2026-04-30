@@ -20,6 +20,8 @@ import (
 
 func newIntegrationTP(t *testing.T) *tracetest.SpanRecorder {
 	t.Helper()
+	t.Setenv("OTEL_INSTRUMENTATION_GO_TRACING_ENABLED", "1")
+	t.Setenv("OTEL_GORILLA_WS_TRACING_ENABLED", "1")
 	recorder := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
 	t.Cleanup(func() {
@@ -40,6 +42,8 @@ func wsURL(srv *httptest.Server) string {
 // client offers only "otel-ws" (no app subprotocol — the JS otel-rxjs-ws
 // default), the server responds with bare "otel-ws" and NOT "otel-ws+".
 func TestIntegration_Handshake_OtelWSOnlyNoAppProtocol(t *testing.T) {
+	t.Setenv("OTEL_INSTRUMENTATION_GO_TRACING_ENABLED", "1")
+	t.Setenv("OTEL_GORILLA_WS_TRACING_ENABLED", "1")
 	upgrader := &otelgorillaws.Upgrader{
 		CheckOrigin: func(r *http.Request) bool { return true },
 		// No AppSubprotocols: accept-any semantics, negotiated will be "".

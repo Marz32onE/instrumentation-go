@@ -28,6 +28,9 @@ var natsURL string
 
 // TestMain starts a NATS container with JetStream enabled, runs all tests, then stops it.
 func TestMain(m *testing.M) {
+	_ = os.Setenv("OTEL_INSTRUMENTATION_GO_TRACING_ENABLED", "1")
+	_ = os.Setenv("OTEL_NATS_TRACING_ENABLED", "1")
+
 	ctx := context.Background()
 	req := testcontainers.ContainerRequest{
 		Image:        "nats:2.10-alpine",

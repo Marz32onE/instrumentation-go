@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestNATSTracingEnabled_DefaultTrue(t *testing.T) {
+func TestNATSTracingEnabled_DefaultFalse(t *testing.T) {
 	prev, existed := os.LookupEnv(envNATSTracingEnabled)
 	_ = os.Unsetenv(envNATSTracingEnabled)
 	t.Cleanup(func() {
@@ -15,12 +15,13 @@ func TestNATSTracingEnabled_DefaultTrue(t *testing.T) {
 			_ = os.Unsetenv(envNATSTracingEnabled)
 		}
 	})
-	if !natsTracingEnabled() {
-		t.Fatal("expected tracing enabled when env var is unset")
+	if natsTracingEnabled() {
+		t.Fatal("expected tracing disabled when env var is unset")
 	}
 }
 
 func TestNATSTracingEnabled_EmptyStringIsEnabled(t *testing.T) {
+	t.Setenv(envGlobalTracingEnabled, "")
 	t.Setenv(envNATSTracingEnabled, "")
 	if !natsTracingEnabled() {
 		t.Fatal("expected empty string to mean enabled")

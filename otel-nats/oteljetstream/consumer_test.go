@@ -22,6 +22,8 @@ import (
 
 func startJetStreamServer(t *testing.T) string {
 	t.Helper()
+	t.Setenv("OTEL_INSTRUMENTATION_GO_TRACING_ENABLED", "1")
+	t.Setenv("OTEL_NATS_TRACING_ENABLED", "1")
 	opts := &natssrv.Options{
 		Host:      "127.0.0.1",
 		Port:      -1,

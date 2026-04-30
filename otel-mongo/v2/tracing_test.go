@@ -19,7 +19,14 @@ func init() {
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
 }
 
+func enableTracing(t *testing.T) {
+	t.Helper()
+	t.Setenv(envGlobalTracingEnabled, "1")
+	t.Setenv(envMongoTracingEnabled, "1")
+}
+
 func Test_extractMetadataFromRaw(t *testing.T) {
+	enableTracing(t)
 	t.Run("valid_document_returns_metadata", func(t *testing.T) {
 		doc := bson.D{
 			{Key: "name", Value: "foo"},
@@ -75,6 +82,7 @@ func Test_extractMetadataFromRaw(t *testing.T) {
 }
 
 func Test_injectTraceIntoDocument(t *testing.T) {
+	enableTracing(t)
 	t.Run("context_without_valid_span_returns_doc_unchanged", func(t *testing.T) {
 		ctx := context.Background()
 		doc := bson.D{{Key: "x", Value: 1}}
@@ -129,6 +137,7 @@ func Test_injectTraceIntoDocument(t *testing.T) {
 }
 
 func Test_ContextFromRawDocument(t *testing.T) {
+	enableTracing(t)
 	t.Run("raw_without_oteltrace_returns_ctx_unchanged", func(t *testing.T) {
 		doc := bson.D{{Key: "a", Value: 1}}
 		raw, err := bson.Marshal(doc)
@@ -161,6 +170,7 @@ func Test_ContextFromRawDocument(t *testing.T) {
 }
 
 func Test_ContextFromDocument(t *testing.T) {
+	enableTracing(t)
 	t.Run("full_document_with_trace_metadata_returns_valid_span_context", func(t *testing.T) {
 		fullDoc := bson.M{
 			"_oteltrace": bson.M{
@@ -187,6 +197,7 @@ func Test_ContextFromDocument(t *testing.T) {
 }
 
 func Test_ContextFromRawDocument_Exported(t *testing.T) {
+	enableTracing(t)
 	traceparent := "00-12345678901234567890123456789012-0123456789012345-01"
 	doc := bson.D{
 		{Key: TraceMetadataKey, Value: bson.D{
@@ -202,6 +213,7 @@ func Test_ContextFromRawDocument_Exported(t *testing.T) {
 }
 
 func Test_injectTraceIntoUpdate(t *testing.T) {
+	enableTracing(t)
 	t.Run("context_without_valid_span_returns_update_unchanged", func(t *testing.T) {
 		ctx := context.Background()
 		update := bson.D{{Key: "$set", Value: bson.D{{Key: "x", Value: 1}}}}
@@ -267,6 +279,7 @@ func Test_injectTraceIntoUpdate(t *testing.T) {
 }
 
 func Test_injectTraceIntoUpdate_DotNotationPreserved(t *testing.T) {
+	enableTracing(t)
 	// mongo.M{"u._id": "v"} marshals to BSON with a literal field name "u._id" (a string
 	// containing a dot character). bson.Unmarshal into bson.D must return that same literal
 	// key — it must NOT expand it to a nested {"u": {"_id": "v"}} document.

@@ -18,7 +18,14 @@ func init() {
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
 }
 
+func enableTracing(t *testing.T) {
+	t.Helper()
+	t.Setenv(envGlobalTracingEnabled, "1")
+	t.Setenv(envMongoTracingEnabled, "1")
+}
+
 func TestContextFromDocumentV1(t *testing.T) {
+	enableTracing(t)
 	t.Run("full_document_with_trace_metadata_returns_valid_span_context", func(t *testing.T) {
 		fullDoc := bson.M{
 			"_oteltrace": bson.M{
@@ -57,6 +64,7 @@ func TestContextFromDocumentV1(t *testing.T) {
 }
 
 func TestContextFromRawDocumentV1(t *testing.T) {
+	enableTracing(t)
 	traceparent := "00-12345678901234567890123456789012-0123456789012345-01"
 	doc := bson.D{
 		{Key: TraceMetadataKey, Value: bson.D{
@@ -108,6 +116,7 @@ func TestStartDeliverSpanEnabled(t *testing.T) {
 }
 
 func Test_injectTraceIntoUpdate_DotNotationPreserved(t *testing.T) {
+	enableTracing(t)
 	// mongo.M{"u._id": "v"} marshals to BSON with a literal field name "u._id" (a string
 	// containing a dot character). bson.Unmarshal into bson.D must return that same literal
 	// key — it must NOT expand it to a nested {"u": {"_id": "v"}} document.
