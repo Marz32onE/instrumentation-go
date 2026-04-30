@@ -27,9 +27,6 @@ type TraceMetadata struct {
 
 // traceMetadataFromContext extracts W3C trace context from ctx into TraceMetadata using prop.
 func traceMetadataFromContext(ctx context.Context, prop propagation.TextMapPropagator) (*TraceMetadata, bool) {
-	if !mongoTracingEnabled() {
-		return nil, false
-	}
 	spanCtx := trace.SpanFromContext(ctx).SpanContext()
 	if !spanCtx.IsValid() {
 		return nil, false
@@ -67,9 +64,6 @@ func injectTraceIntoDocument(ctx context.Context, document any, prop propagation
 // unmarshals it into a TraceMetadata. Returns (nil, false) when the field is absent
 // or cannot be decoded.
 func extractMetadataFromRaw(raw bson.Raw) (*TraceMetadata, bool) {
-	if !mongoTracingEnabled() {
-		return nil, false
-	}
 	val, err := raw.LookupErr(TraceMetadataKey)
 	if err != nil {
 		return nil, false
@@ -121,9 +115,6 @@ func ContextFromDocument(ctx context.Context, fullDoc any) (trace.SpanContext, b
 
 // contextFromTraceMetadata injects the remote span context encoded in meta into ctx using prop.
 func contextFromTraceMetadata(ctx context.Context, meta *TraceMetadata, prop propagation.TextMapPropagator) context.Context {
-	if !mongoTracingEnabled() {
-		return ctx
-	}
 	carrier := propagation.MapCarrier{
 		"traceparent": meta.Traceparent,
 	}

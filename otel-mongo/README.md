@@ -43,18 +43,20 @@ otel-mongo/
 
 ### Tracing feature flags
 
-`otel-mongo` (v1 + v2) supports one global switch and one module switch:
+`otel-mongo` (v1 + v2) supports one global switch and two module switches:
 
 - `OTEL_INSTRUMENTATION_GO_TRACING_ENABLED` (global master switch)
-- `OTEL_MONGO_TRACING_ENABLED` (mongo module switch)
+- `OTEL_MONGO_TRACING_ENABLED` (mongo span switch, includes client/internal/consumer and deliver spans)
+- `OTEL_MONGO_PROPAGATION_ENABLED` (document `_oteltrace` injection/extraction switch)
 
-Defaults: both enabled when unset. Values `false/0/no/off` disable.
+Defaults: all disabled when unset. Values `false/0/no/off` disable.
 
 Priority:
-1. If global is disabled, mongo tracing is disabled regardless of module flag.
-2. If global is enabled, module flag controls mongo tracing.
+1. If global is disabled, mongo spans and document propagation are disabled.
+2. If global is enabled, `OTEL_MONGO_TRACING_ENABLED` controls mongo spans.
+3. If global is enabled, `OTEL_MONGO_PROPAGATION_ENABLED` controls document `_oteltrace` propagation.
 
-When tracing is disabled, both span creation and `_oteltrace` propagation are turned off.
+When all flags are unset/disabled, otel-mongo creates no spans and exports nothing to OTLP endpoints.
 
 ### 1. Initialize provider and propagator (application responsibility)
 

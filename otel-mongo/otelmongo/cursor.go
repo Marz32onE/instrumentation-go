@@ -13,9 +13,10 @@ import (
 // Cursor wraps *mongo.Cursor with trace propagation.
 type Cursor struct {
 	*mongo.Cursor
-	parentCtx  context.Context
-	tracer     trace.Tracer
-	propagator propagation.TextMapPropagator
+	parentCtx          context.Context
+	tracer             trace.Tracer
+	propagator         propagation.TextMapPropagator
+	propagationEnabled bool
 }
 
 // DecodeWithContext decodes the current document into val and returns a context
@@ -30,9 +31,11 @@ func (c *Cursor) DecodeWithContext(ctx context.Context, val any) (context.Contex
 	}
 	raw := c.Current
 	var originSpanCtx trace.SpanContext
-	if meta, ok := extractMetadataFromRaw(raw); ok {
-		originCtx := contextFromTraceMetadata(context.Background(), meta, c.propagator)
-		originSpanCtx = trace.SpanContextFromContext(originCtx)
+	if c.propagationEnabled {
+		if meta, ok := extractMetadataFromRaw(raw); ok {
+			originCtx := contextFromTraceMetadata(context.Background(), meta, c.propagator)
+			originSpanCtx = trace.SpanContextFromContext(originCtx)
+		}
 	}
 
 	// Detach any existing parent so tracer.Start creates a new TraceID.
@@ -56,10 +59,11 @@ func (c *Cursor) Decode(val any) error {
 // SingleResult wraps *mongo.SingleResult with trace propagation.
 type SingleResult struct {
 	*mongo.SingleResult
-	span       trace.Span
-	ctx        context.Context
-	propagator propagation.TextMapPropagator
-	endOnce    sync.Once
+	span               trace.Span
+	ctx                context.Context
+	propagator         propagation.TextMapPropagator
+	propagationEnabled bool
+	endOnce            sync.Once
 }
 
 // endSpan ensures the associated span is ended exactly once.
@@ -79,11 +83,13 @@ func (r *SingleResult) Decode(v any) error {
 		return err
 	}
 
-	if meta, ok := extractMetadataFromRaw(raw); ok {
-		originCtx := contextFromTraceMetadata(context.Background(), meta, r.propagator)
-		originSpanCtx := trace.SpanContextFromContext(originCtx)
-		if originSpanCtx.IsValid() {
-			r.span.AddLink(trace.Link{SpanContext: originSpanCtx})
+	if r.propagationEnabled {
+		if meta, ok := extractMetadataFromRaw(raw); ok {
+			originCtx := contextFromTraceMetadata(context.Background(), meta, r.propagator)
+			originSpanCtx := trace.SpanContextFromContext(originCtx)
+			if originSpanCtx.IsValid() {
+				r.span.AddLink(trace.Link{SpanContext: originSpanCtx})
+			}
 		}
 	}
 
@@ -100,8 +106,10 @@ func (r *SingleResult) TraceContext() context.Context {
 	if err != nil {
 		return r.ctx
 	}
-	if meta, ok := extractMetadataFromRaw(raw); ok {
-		return contextFromTraceMetadata(r.ctx, meta, r.propagator)
+	if r.propagationEnabled {
+		if meta, ok := extractMetadataFromRaw(raw); ok {
+			return contextFromTraceMetadata(r.ctx, meta, r.propagator)
+		}
 	}
 	return r.ctx
 }

@@ -21,6 +21,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.39.0"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 // Client wraps *mongo.Client with OpenTelemetry instrumentation.
@@ -28,12 +29,13 @@ import (
 // falling back to otel globals when not provided. The globals are never overwritten.
 type Client struct {
 	*mongo.Client
-	serverAddr    string
-	serverPort    int
-	tracer        trace.Tracer                  // derived from option or otel.GetTracerProvider()
-	propagator    propagation.TextMapPropagator // from option or otel.GetTextMapPropagator()
-	deliverTracer trace.Tracer                  // MongoDB deliver span tracer (nil when disabled)
-	mongoTP       *sdktrace.TracerProvider      // independent TracerProvider for deliver spans (nil when disabled)
+	serverAddr         string
+	serverPort         int
+	tracer             trace.Tracer                  // derived from option or otel.GetTracerProvider()
+	propagator         propagation.TextMapPropagator // from option or otel.GetTextMapPropagator()
+	propagationEnabled bool
+	deliverTracer      trace.Tracer             // MongoDB deliver span tracer (nil when disabled)
+	mongoTP            *sdktrace.TracerProvider // independent TracerProvider for deliver spans (nil when disabled)
 }
 
 // ClientOption configures Connect/NewClient. Per OTel contrib: accept TracerProvider and Propagators.
@@ -46,8 +48,9 @@ type clientOptionFunc func(*clientConfig)
 func (f clientOptionFunc) apply(c *clientConfig) { f(c) }
 
 type clientConfig struct {
-	TracerProvider trace.TracerProvider
-	Propagators    propagation.TextMapPropagator
+	TracerProvider     trace.TracerProvider
+	Propagators        propagation.TextMapPropagator
+	PropagationEnabled *bool
 }
 
 // WithTracerProvider sets the TracerProvider for the client. Defaults to otel.GetTracerProvider().
@@ -65,6 +68,14 @@ func WithPropagators(p propagation.TextMapPropagator) ClientOption {
 		if p != nil {
 			c.Propagators = p
 		}
+	})
+}
+
+// WithTracePropagationEnabled sets whether _oteltrace propagation is enabled.
+// This option overrides OTEL_MONGO_PROPAGATION_ENABLED when provided.
+func WithTracePropagationEnabled(v bool) ClientOption {
+	return clientOptionFunc(func(c *clientConfig) {
+		c.PropagationEnabled = &v
 	})
 }
 
@@ -96,7 +107,12 @@ func ConnectWithOptions(traceOpts []ClientOption, opts ...*options.ClientOptions
 	if prop == nil {
 		prop = otel.GetTextMapPropagator()
 	}
-	tracer := tp.Tracer(ScopeName, trace.WithInstrumentationVersion(Version()))
+	propEnabled := resolveFlag(cfg.PropagationEnabled, mongoPropagationEnabled())
+	tracerProvider := tp
+	if !mongoTracingEnabled() {
+		tracerProvider = noop.NewTracerProvider()
+	}
+	tracer := tracerProvider.Tracer(ScopeName, trace.WithInstrumentationVersion(Version()))
 	merged := options.MergeClientOptions(opts...)
 	mc, err := mongo.Connect(merged)
 	if err != nil {
@@ -109,13 +125,14 @@ func ConnectWithOptions(traceOpts []ClientOption, opts ...*options.ClientOptions
 		mongoTP, deliverTracer = initMongoProvider(addr, port)
 	}
 	return &Client{
-		Client:        mc,
-		serverAddr:    addr,
-		serverPort:    port,
-		tracer:        tracer,
-		propagator:    prop,
-		mongoTP:       mongoTP,
-		deliverTracer: deliverTracer,
+		Client:             mc,
+		serverAddr:         addr,
+		serverPort:         port,
+		tracer:             tracer,
+		propagator:         prop,
+		propagationEnabled: propEnabled,
+		mongoTP:            mongoTP,
+		deliverTracer:      deliverTracer,
 	}, nil
 }
 
@@ -239,11 +256,12 @@ func mongoServiceName(addr string, port int) string {
 // Database returns a wrapped Database for document-level tracing.
 func (c *Client) Database(name string, opts ...options.Lister[options.DatabaseOptions]) *Database {
 	return &Database{
-		Database:      c.Client.Database(name, opts...),
-		serverAddr:    c.serverAddr,
-		serverPort:    c.serverPort,
-		tracer:        c.tracer,
-		propagator:    c.propagator,
-		deliverTracer: c.deliverTracer,
+		Database:           c.Client.Database(name, opts...),
+		serverAddr:         c.serverAddr,
+		serverPort:         c.serverPort,
+		tracer:             c.tracer,
+		propagator:         c.propagator,
+		propagationEnabled: c.propagationEnabled,
+		deliverTracer:      c.deliverTracer,
 	}
 }

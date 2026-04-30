@@ -13,6 +13,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 // stdProp is the standard W3C propagator used across cursor tests.
@@ -53,7 +54,7 @@ func TestCursorDecodeWithContext_ExtractsTrace(t *testing.T) {
 
 	require.True(t, cursor.Next(context.Background()))
 
-	c := &Cursor{Cursor: cursor, parentCtx: ctx, tracer: tracer, propagator: stdProp}
+	c := &Cursor{Cursor: cursor, parentCtx: ctx, tracer: tracer, propagator: stdProp, propagationEnabled: true}
 
 	var result bson.D
 	_, err = c.DecodeWithContext(context.Background(), &result)
@@ -111,6 +112,43 @@ func TestCursorDecodeWithContext_NoTrace(t *testing.T) {
 	assert.Empty(t, decodeSpan.Links(), "no links expected when document has no trace")
 }
 
+func TestCursorDecodeWithContext_NoFlagsNoSpan(t *testing.T) {
+	t.Setenv(envGlobalTracingEnabled, "false")
+	t.Setenv(envMongoTracingEnabled, "false")
+	t.Setenv(envMongoPropagationEnabled, "true")
+	otel.SetTextMapPropagator(stdProp)
+
+	sr := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+
+	ctx, originSpan := tp.Tracer("test").Start(context.Background(), "origin")
+	originSpan.End()
+	rawDoc := buildDocWithTrace(t, ctx)
+
+	cursor, err := mongo.NewCursorFromDocuments([]any{rawDoc}, nil, nil)
+	require.NoError(t, err)
+	defer func() { _ = cursor.Close(context.Background()) }()
+	require.True(t, cursor.Next(context.Background()))
+
+	c := &Cursor{
+		Cursor:             cursor,
+		parentCtx:          ctx,
+		tracer:             noop.NewTracerProvider().Tracer(""),
+		propagator:         stdProp,
+		propagationEnabled: true,
+	}
+
+	var result bson.D
+	enrichedCtx, err := c.DecodeWithContext(context.Background(), &result)
+	require.NoError(t, err)
+	assert.False(t, trace.SpanContextFromContext(enrichedCtx).IsValid(), "expected noop tracer to avoid creating span context")
+
+	for _, s := range sr.Ended() {
+		assert.NotEqual(t, "mongo.cursor.decode", s.Name(), "no decode span should be recorded when flags are disabled")
+	}
+}
+
 func TestSingleResultDecodeLinksOriginTrace(t *testing.T) {
 	otel.SetTextMapPropagator(stdProp)
 
@@ -129,10 +167,11 @@ func TestSingleResultDecodeLinksOriginTrace(t *testing.T) {
 	_, findSpan := tracer.Start(context.Background(), "findone")
 
 	wrapped := &SingleResult{
-		SingleResult: mongoSR,
-		propagator:   stdProp,
-		span:         findSpan,
-		ctx:          ctx,
+		SingleResult:       mongoSR,
+		propagator:         stdProp,
+		span:               findSpan,
+		ctx:                ctx,
+		propagationEnabled: true,
 	}
 
 	var out bson.D
@@ -175,10 +214,11 @@ func TestSingleResultTraceContext(t *testing.T) {
 	_, findSpan := tracer.Start(context.Background(), "findone2")
 
 	wrapped := &SingleResult{
-		SingleResult: mongoSR,
-		propagator:   stdProp,
-		span:         findSpan,
-		ctx:          ctx,
+		SingleResult:       mongoSR,
+		propagator:         stdProp,
+		span:               findSpan,
+		ctx:                ctx,
+		propagationEnabled: true,
 	}
 
 	enriched := wrapped.TraceContext()

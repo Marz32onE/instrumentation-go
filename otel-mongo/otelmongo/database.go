@@ -5,31 +5,28 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
-	"go.opentelemetry.io/otel/trace/noop"
 )
 
 // Database wraps *mongo.Database for document-level tracing.
 type Database struct {
 	*mongo.Database
-	serverAddr    string
-	serverPort    int
-	tracer        trace.Tracer
-	propagator    propagation.TextMapPropagator
-	deliverTracer trace.Tracer
+	serverAddr         string
+	serverPort         int
+	tracer             trace.Tracer
+	propagator         propagation.TextMapPropagator
+	propagationEnabled bool
+	deliverTracer      trace.Tracer
 }
 
 // Collection returns a Collection with document-level trace propagation.
 func (d *Database) Collection(name string, opts ...*options.CollectionOptions) *Collection {
-	tracer := d.tracer
-	if !mongoTracingEnabled() {
-		tracer = noop.NewTracerProvider().Tracer("")
-	}
 	return &Collection{
-		Collection:    d.Database.Collection(name, opts...),
-		tracer:        tracer,
-		propagator:    d.propagator,
-		serverAddr:    d.serverAddr,
-		serverPort:    d.serverPort,
-		deliverTracer: d.deliverTracer,
+		Collection:         d.Database.Collection(name, opts...),
+		tracer:             d.tracer,
+		propagator:         d.propagator,
+		propagationEnabled: d.propagationEnabled,
+		serverAddr:         d.serverAddr,
+		serverPort:         d.serverPort,
+		deliverTracer:      d.deliverTracer,
 	}
 }

@@ -40,13 +40,14 @@ type BulkWriteResult struct {
 // or ContextFromDocument(ctx, event.FullDocument) for manual extraction.
 type ChangeStream struct {
 	*mongo.ChangeStream
-	tracer          trace.Tracer                  // consumer-side app tracer
-	propagator      propagation.TextMapPropagator // for extracting trace from documents
-	spanName        string
-	baseSpanOpts    []trace.SpanStartOption
-	deliverTracer   trace.Tracer         // nil when disabled
-	deliverSpanName string               // e.g. "messaging.messages deliver"
-	deliverAttrs    []attribute.KeyValue // same attrs as producer-side deliver span
+	tracer             trace.Tracer                  // consumer-side app tracer
+	propagator         propagation.TextMapPropagator // for extracting trace from documents
+	propagationEnabled bool
+	spanName           string
+	baseSpanOpts       []trace.SpanStartOption
+	deliverTracer      trace.Tracer         // nil when disabled
+	deliverSpanName    string               // e.g. "messaging.messages deliver"
+	deliverAttrs       []attribute.KeyValue // same attrs as producer-side deliver span
 }
 
 // buildConsumerCtx creates a detached context with a consumer span linked to originSpanCtx.
@@ -95,7 +96,7 @@ func (cs *ChangeStream) DecodeWithContext(ctx context.Context, val any) (context
 	var originSpanCtx trace.SpanContext
 
 	fullDoc, err := cs.Current.LookupErr("fullDocument")
-	if err == nil {
+	if err == nil && cs.propagationEnabled {
 		docRaw, ok := fullDoc.DocumentOK()
 		if ok {
 			if meta, ok := extractMetadataFromRaw(docRaw); ok {

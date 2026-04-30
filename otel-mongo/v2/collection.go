@@ -15,11 +15,12 @@ import (
 // extract OpenTelemetry trace contexts via the "_oteltrace" document field.
 type Collection struct {
 	*mongo.Collection
-	tracer        trace.Tracer
-	propagator    propagation.TextMapPropagator
-	serverAddr    string
-	serverPort    int
-	deliverTracer trace.Tracer // nil when disabled
+	tracer             trace.Tracer
+	propagator         propagation.TextMapPropagator
+	propagationEnabled bool
+	serverAddr         string
+	serverPort         int
+	deliverTracer      trace.Tracer // nil when disabled
 }
 
 // NewCollection wraps an existing *mongo.Collection with trace propagation.
@@ -77,11 +78,15 @@ func (c *Collection) InsertOne(ctx context.Context, document any, opts ...option
 
 	injectCtx, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
 	defer deliverSpan.End()
-	docWithTrace, err := injectTraceIntoDocument(injectCtx, document, c.propagator)
-	if err != nil {
-		return nil, fmt.Errorf("otelmongo: inject trace: %w", err)
+	docToInsert := document
+	if c.propagationEnabled {
+		docWithTrace, err := injectTraceIntoDocument(injectCtx, document, c.propagator)
+		if err != nil {
+			return nil, fmt.Errorf("otelmongo: inject trace: %w", err)
+		}
+		docToInsert = docWithTrace
 	}
-	res, err := c.Collection.InsertOne(injectCtx, docWithTrace, opts...)
+	res, err := c.Collection.InsertOne(injectCtx, docToInsert, opts...)
 	recordSpanError(span, err)
 	if err != nil {
 		return nil, err
@@ -100,15 +105,19 @@ func (c *Collection) InsertMany(ctx context.Context, documents []any, opts ...op
 
 	injectCtx, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
 	defer deliverSpan.End()
-	docsWithTrace := make([]any, 0, len(documents))
-	for _, doc := range documents {
-		d, err := injectTraceIntoDocument(injectCtx, doc, c.propagator)
-		if err != nil {
-			return nil, fmt.Errorf("otelmongo: inject trace: %w", err)
+	docsToInsert := documents
+	if c.propagationEnabled {
+		docsWithTrace := make([]any, 0, len(documents))
+		for _, doc := range documents {
+			d, err := injectTraceIntoDocument(injectCtx, doc, c.propagator)
+			if err != nil {
+				return nil, fmt.Errorf("otelmongo: inject trace: %w", err)
+			}
+			docsWithTrace = append(docsWithTrace, d)
 		}
-		docsWithTrace = append(docsWithTrace, d)
+		docsToInsert = docsWithTrace
 	}
-	res, err := c.Collection.InsertMany(injectCtx, docsWithTrace, opts...)
+	res, err := c.Collection.InsertMany(injectCtx, docsToInsert, opts...)
 	recordSpanError(span, err)
 	if err != nil {
 		return nil, err
@@ -133,7 +142,7 @@ func (c *Collection) Find(ctx context.Context, filter any, opts ...options.Liste
 	if err != nil {
 		return nil, err
 	}
-	return &Cursor{Cursor: cursor, parentCtx: ctx, tracer: c.tracer, propagator: c.propagator}, nil
+	return &Cursor{Cursor: cursor, parentCtx: ctx, tracer: c.tracer, propagator: c.propagator, propagationEnabled: c.propagationEnabled}, nil
 }
 
 // FindOne executes a find command returning at most one document.
@@ -147,7 +156,7 @@ func (c *Collection) FindOne(ctx context.Context, filter any, opts ...options.Li
 	_, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
 	sr := c.Collection.FindOne(ctx, filter, opts...)
 	deliverSpan.End()
-	return &SingleResult{SingleResult: sr, span: span, ctx: ctx, propagator: c.propagator}
+	return &SingleResult{SingleResult: sr, span: span, ctx: ctx, propagator: c.propagator, propagationEnabled: c.propagationEnabled}
 }
 
 // UpdateOne injects the current trace context into the update and replaces the document's _oteltrace.
@@ -161,11 +170,15 @@ func (c *Collection) UpdateOne(ctx context.Context, filter any, update any, opts
 
 	injectCtx, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
 	defer deliverSpan.End()
-	updateWithTrace, err := injectTraceIntoUpdate(injectCtx, update, c.propagator)
-	if err != nil {
-		span.AddEvent("otelmongo.trace_inject_failed",
-			trace.WithAttributes(attribute.String("error.message", err.Error())))
-		updateWithTrace = update
+	updateWithTrace := update
+	if c.propagationEnabled {
+		var err error
+		updateWithTrace, err = injectTraceIntoUpdate(injectCtx, update, c.propagator)
+		if err != nil {
+			span.AddEvent("otelmongo.trace_inject_failed",
+				trace.WithAttributes(attribute.String("error.message", err.Error())))
+			updateWithTrace = update
+		}
 	}
 	res, err := c.Collection.UpdateOne(injectCtx, filter, updateWithTrace, opts...)
 	recordSpanError(span, err)
@@ -186,11 +199,15 @@ func (c *Collection) UpdateMany(ctx context.Context, filter any, update any, opt
 
 	injectCtx, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
 	defer deliverSpan.End()
-	updateWithTrace, err := injectTraceIntoUpdate(injectCtx, update, c.propagator)
-	if err != nil {
-		span.AddEvent("otelmongo.trace_inject_failed",
-			trace.WithAttributes(attribute.String("error.message", err.Error())))
-		updateWithTrace = update
+	updateWithTrace := update
+	if c.propagationEnabled {
+		var err error
+		updateWithTrace, err = injectTraceIntoUpdate(injectCtx, update, c.propagator)
+		if err != nil {
+			span.AddEvent("otelmongo.trace_inject_failed",
+				trace.WithAttributes(attribute.String("error.message", err.Error())))
+			updateWithTrace = update
+		}
 	}
 	res, err := c.Collection.UpdateMany(injectCtx, filter, updateWithTrace, opts...)
 	recordSpanError(span, err)
@@ -211,11 +228,15 @@ func (c *Collection) ReplaceOne(ctx context.Context, filter any, replacement any
 
 	injectCtx, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
 	defer deliverSpan.End()
-	replacementWithTrace, err := injectTraceIntoDocument(injectCtx, replacement, c.propagator)
-	if err != nil {
-		return nil, fmt.Errorf("otelmongo: inject trace: %w", err)
+	replacementToUse := replacement
+	if c.propagationEnabled {
+		replacementWithTrace, err := injectTraceIntoDocument(injectCtx, replacement, c.propagator)
+		if err != nil {
+			return nil, fmt.Errorf("otelmongo: inject trace: %w", err)
+		}
+		replacementToUse = replacementWithTrace
 	}
-	res, err := c.Collection.ReplaceOne(injectCtx, filter, replacementWithTrace, opts...)
+	res, err := c.Collection.ReplaceOne(injectCtx, filter, replacementToUse, opts...)
 	recordSpanError(span, err)
 	if err != nil {
 		return nil, err
@@ -312,7 +333,7 @@ func (c *Collection) Aggregate(ctx context.Context, pipeline any, opts ...option
 	if err != nil {
 		return nil, err
 	}
-	return &Cursor{Cursor: cursor, parentCtx: ctx, tracer: c.tracer, propagator: c.propagator}, nil
+	return &Cursor{Cursor: cursor, parentCtx: ctx, tracer: c.tracer, propagator: c.propagator, propagationEnabled: c.propagationEnabled}, nil
 }
 
 // UpdateByID updates one document by _id, injecting the current trace into the update.
@@ -326,11 +347,15 @@ func (c *Collection) UpdateByID(ctx context.Context, id any, update any, opts ..
 
 	injectCtx, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
 	defer deliverSpan.End()
-	updateWithTrace, err := injectTraceIntoUpdate(injectCtx, update, c.propagator)
-	if err != nil {
-		span.AddEvent("otelmongo.trace_inject_failed",
-			trace.WithAttributes(attribute.String("error.message", err.Error())))
-		updateWithTrace = update
+	updateWithTrace := update
+	if c.propagationEnabled {
+		var err error
+		updateWithTrace, err = injectTraceIntoUpdate(injectCtx, update, c.propagator)
+		if err != nil {
+			span.AddEvent("otelmongo.trace_inject_failed",
+				trace.WithAttributes(attribute.String("error.message", err.Error())))
+			updateWithTrace = update
+		}
 	}
 	res, err := c.Collection.UpdateByID(injectCtx, id, updateWithTrace, opts...)
 	recordSpanError(span, err)
@@ -366,12 +391,16 @@ func (c *Collection) BulkWrite(ctx context.Context, models []mongo.WriteModel, o
 
 	injectCtx, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
 	defer deliverSpan.End()
-	injected, err := buildBulkWriteModelsWithTrace(injectCtx, models, c.propagator)
-	if err != nil {
-		recordSpanError(span, err)
-		return nil, err
+	modelsToWrite := models
+	if c.propagationEnabled {
+		injected, err := buildBulkWriteModelsWithTrace(injectCtx, models, c.propagator)
+		if err != nil {
+			recordSpanError(span, err)
+			return nil, err
+		}
+		modelsToWrite = injected
 	}
-	res, err := c.Collection.BulkWrite(injectCtx, injected, opts...)
+	res, err := c.Collection.BulkWrite(injectCtx, modelsToWrite, opts...)
 	recordSpanError(span, err)
 	if err != nil {
 		return nil, err
@@ -412,13 +441,14 @@ func (c *Collection) Watch(ctx context.Context, pipeline any, opts ...options.Li
 		}
 	}
 	return &ChangeStream{
-		ChangeStream:    cs,
-		tracer:          c.tracer,
-		propagator:      c.propagator,
-		spanName:        spanName,
-		baseSpanOpts:    baseSpanOpts,
-		deliverTracer:   c.deliverTracer,
-		deliverSpanName: dbName + "." + collName + " deliver",
-		deliverAttrs:    deliverAttrs,
+		ChangeStream:       cs,
+		tracer:             c.tracer,
+		propagator:         c.propagator,
+		propagationEnabled: c.propagationEnabled,
+		spanName:           spanName,
+		baseSpanOpts:       baseSpanOpts,
+		deliverTracer:      c.deliverTracer,
+		deliverSpanName:    dbName + "." + collName + " deliver",
+		deliverAttrs:       deliverAttrs,
 	}, nil
 }
