@@ -13,6 +13,7 @@ import (
 )
 
 func TestBuildConsumerCtx_NewTraceIDAndLinksOriginTrace(t *testing.T) {
+	enableTracing(t)
 	sr := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithSpanProcessor(sr),
@@ -50,6 +51,7 @@ func TestBuildConsumerCtx_NewTraceIDAndLinksOriginTrace(t *testing.T) {
 }
 
 func TestBuildConsumerCtx_WithDeliverTracer_ChildOfDeliver(t *testing.T) {
+	enableTracing(t)
 	sr := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithSpanProcessor(sr),

@@ -79,6 +79,7 @@ func TestNewCollection(t *testing.T) {
 // for use in integration tests.
 func integrationTP(t *testing.T) (trace.TracerProvider, *tracetest.SpanRecorder) {
 	t.Helper()
+	enableTracing(t)
 	sr := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
 	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })

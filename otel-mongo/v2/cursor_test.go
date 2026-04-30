@@ -18,6 +18,7 @@ import (
 // matching the span context in ctx.
 func buildDocWithTrace(t *testing.T, ctx context.Context) bson.Raw { //nolint:revive // ctx is second parameter intentionally for test helpers
 	t.Helper()
+	enableTracing(t)
 	doc := bson.D{{Key: "value", Value: "test"}}
 	injected, err := injectTraceIntoDocument(ctx, doc)
 	require.NoError(t, err)

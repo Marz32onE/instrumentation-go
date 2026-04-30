@@ -14,6 +14,7 @@ import (
 )
 
 func TestBuildBulkWriteModelsWithTrace_InsertOneModel(t *testing.T) {
+	enableTracing(t)
 	sr := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
 	otel.SetTracerProvider(tp)
@@ -43,6 +44,7 @@ func TestBuildBulkWriteModelsWithTrace_InsertOneModel(t *testing.T) {
 }
 
 func TestBuildBulkWriteModelsWithTrace_UpdateOneModel(t *testing.T) {
+	enableTracing(t)
 	sr := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
 	otel.SetTracerProvider(tp)
@@ -78,6 +80,7 @@ func TestBuildBulkWriteModelsWithTrace_UpdateOneModel(t *testing.T) {
 }
 
 func TestBuildBulkWriteModelsWithTrace_UpdateOneModel_PreservesOptions(t *testing.T) {
+	enableTracing(t)
 	sr := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
 	otel.SetTracerProvider(tp)
@@ -105,6 +108,7 @@ func TestBuildBulkWriteModelsWithTrace_UpdateOneModel_PreservesOptions(t *testin
 }
 
 func TestBuildBulkWriteModelsWithTrace_UpdateOneModel_SetOnInsert(t *testing.T) {
+	enableTracing(t)
 	sr := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
 	otel.SetTracerProvider(tp)
