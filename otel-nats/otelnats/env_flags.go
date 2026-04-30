@@ -20,7 +20,7 @@ func natsTracingEnabled() bool {
 func envEnabledByDefault(key string) bool {
 	v, ok := os.LookupEnv(key)
 	if !ok {
-		return true
+		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "0", "false", "no", "off":

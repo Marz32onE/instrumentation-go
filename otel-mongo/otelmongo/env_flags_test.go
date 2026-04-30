@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestMongoTracingEnabled_DefaultTrue(t *testing.T) {
+func TestMongoTracingEnabled_DefaultFalse(t *testing.T) {
 	prev, existed := os.LookupEnv(envMongoTracingEnabled)
 	_ = os.Unsetenv(envMongoTracingEnabled)
 	t.Cleanup(func() {
@@ -15,12 +15,13 @@ func TestMongoTracingEnabled_DefaultTrue(t *testing.T) {
 			_ = os.Unsetenv(envMongoTracingEnabled)
 		}
 	})
-	if !mongoTracingEnabled() {
-		t.Fatal("expected tracing enabled when env var is unset")
+	if mongoTracingEnabled() {
+		t.Fatal("expected tracing disabled when env var is unset")
 	}
 }
 
 func TestMongoTracingEnabled_EmptyStringIsEnabled(t *testing.T) {
+	t.Setenv(envGlobalTracingEnabled, "")
 	t.Setenv(envMongoTracingEnabled, "")
 	if !mongoTracingEnabled() {
 		t.Fatal("expected empty string to mean enabled")
