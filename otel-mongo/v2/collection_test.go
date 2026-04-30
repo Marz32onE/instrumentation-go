@@ -69,7 +69,7 @@ func TestNewCollection(t *testing.T) {
 	// We only need to verify that NewCollection returns a non-nil wrapper
 	// with the correct tracer; we do not need a live server for this.
 	raw := &mongo.Collection{}
-	coll := NewCollection(raw, tracer)
+	coll := NewCollection(raw, tracer, otel.GetTextMapPropagator())
 	require.NotNil(t, coll)
 	assert.Equal(t, raw, coll.Collection)
 	assert.NotNil(t, coll.tracer)
@@ -80,6 +80,7 @@ func TestNewCollection(t *testing.T) {
 func integrationTP(t *testing.T) (trace.TracerProvider, *tracetest.SpanRecorder) {
 	t.Helper()
 	enableTracing(t)
+	t.Setenv(envMongoPropagationEnabled, "1")
 	sr := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
 	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })

@@ -9,9 +9,11 @@ Four independent Go modules providing OpenTelemetry instrumentation for MongoDB,
 | Module dir | Import path suffix | What it wraps |
 |---|---|---|
 | `otel-mongo/` | `.../otel-mongo/otelmongo` | MongoDB Go driver v1 |
-| `otel-mongo/v2/` | `.../otel-mongo/v2` | MongoDB Go driver v2 |
+| `otel-mongo/v2/` | `.../otel-mongo/v2` (separate `go.mod`) | MongoDB Go driver v2 |
 | `otel-nats/` | `.../otel-nats/otelnats` + `oteljetstream` | NATS core + JetStream |
 | `otel-gorilla-ws/` | `.../otel-gorilla-ws` | gorilla/websocket |
+
+Each module also has `example/` and `tests/integration/` sub-modules with their own `go.mod`. Integration tests use **testcontainers-go** (require Docker/Podman running).
 
 ## Common Commands
 
@@ -32,6 +34,11 @@ golangci-lint run ./...
 ```
 
 **Mandatory after any `.go` change:** run all three (`go build`, `go test`, `golangci-lint`) before considering work complete. All three must pass with 0 issues.
+
+```bash
+# Integration tests (require Docker; run inside tests/integration/)
+cd otel-mongo/tests/integration && go test -v -race ./...
+```
 
 ## Lint Rules to Know
 
@@ -74,9 +81,20 @@ Applications call `otelsetup.Init()` at startup to configure the global provider
 | NATS/JetStream | Message headers | `traceparent`, `tracestate` headers via `HeaderCarrier` |
 | WebSocket | JSON message body | Top-level `traceparent`/`tracestate` fields + `payload` (base64); non-JSON passthrough |
 
+### Feature Flags (otel-mongo)
+
+Two env vars gate the deliver span and `_oteltrace` propagation (both default **disabled** when unset):
+
+| Env var | Scope |
+|---|---|
+| `OTEL_INSTRUMENTATION_GO_TRACING_ENABLED` | global master switch |
+| `OTEL_MONGO_TRACING_ENABLED` | mongo deliver span + propagation |
+
+`envEnabledByDefault()` returns `false` when a var is absent — so both flags must be explicitly set to a truthy value (`true/1/yes/on`) to enable. Regular CLIENT spans are **always** created regardless of these flags.
+
 ### Deliver Spans
 
-All three transports implement an optional "deliver span" pattern: a synthetic span is created with a service name equal to the system identifier (`nats://host:port`, `mongodb://host:port`). This creates a visible broker node in the service graph. Enabled automatically when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+All three transports implement an optional "deliver span" pattern: a synthetic span is created with a service name equal to the system identifier (`nats://host:port`, `mongodb://host:port`). This creates a visible broker node in the service graph. For otel-mongo, deliver spans require **both** `mongoTracingEnabled()` to return true AND `OTEL_EXPORTER_OTLP_ENDPOINT` to be set — the function checks `OTEL_INSTRUMENTATION_GO_TRACING_ENABLED` AND `OTEL_MONGO_TRACING_ENABLED`.
 
 ### Consumer Context
 
@@ -93,6 +111,7 @@ Async consumers (NATS subscribers, MongoDB change stream readers, WebSocket read
 - `_oteltrace` field adds ~100–120 bytes per document. Schema-aware callers can use `SkipDBOperationsExporter` to suppress noisy spans (e.g., `getMore`).
 - Use `Cursor.DecodeWithContext(ctx, v)` (not `Decode`) when reading in a change-stream context — it extracts the trace from the document and links spans correctly.
 - `ContextFromDocument(ctx, doc)` is the low-level helper for extracting trace from an already-decoded document map.
+- **v1 and v2 parity rule:** `otelmongo/` (v1) and `v2/` are parallel implementations. All logic changes — new flags, new fields, new inject/extract paths — must be applied to **both** sub-packages identically. Run lint and tests for both when either is touched.
 
 ### otel-nats
 
