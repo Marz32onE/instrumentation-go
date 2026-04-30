@@ -7,22 +7,26 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
 
 // Collection wraps *mongo.Collection and overrides CRUD methods to inject and
-// extract OpenTelemetry trace contexts via the "_oteltrace" document field (uses otel globals).
+// extract OpenTelemetry trace contexts via the "_oteltrace" document field.
 type Collection struct {
 	*mongo.Collection
 	tracer        trace.Tracer
+	propagator    propagation.TextMapPropagator
 	serverAddr    string
 	serverPort    int
 	deliverTracer trace.Tracer // nil when disabled
 }
 
-// NewCollection wraps an existing *mongo.Collection with trace propagation (tracer/propagator from otel globals).
-func NewCollection(coll *mongo.Collection, tracer trace.Tracer) *Collection {
-	return &Collection{Collection: coll, tracer: tracer}
+// NewCollection wraps an existing *mongo.Collection with trace propagation.
+// Tracer and propagator are required; use WithTracerProvider/WithPropagators via Connect
+// for the standard init path.
+func NewCollection(coll *mongo.Collection, tracer trace.Tracer, propagator propagation.TextMapPropagator) *Collection {
+	return &Collection{Collection: coll, tracer: tracer, propagator: propagator}
 }
 
 func (c *Collection) dbAndColl() (dbName, collName string) {
@@ -73,7 +77,7 @@ func (c *Collection) InsertOne(ctx context.Context, document any, opts ...*optio
 
 	injectCtx, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
 	defer deliverSpan.End()
-	docWithTrace, err := injectTraceIntoDocument(injectCtx, document)
+	docWithTrace, err := injectTraceIntoDocument(injectCtx, document, c.propagator)
 	if err != nil {
 		return nil, fmt.Errorf("otelmongo: inject trace: %w", err)
 	}
@@ -98,7 +102,7 @@ func (c *Collection) InsertMany(ctx context.Context, documents []any, opts ...*o
 	defer deliverSpan.End()
 	docsWithTrace := make([]any, 0, len(documents))
 	for _, doc := range documents {
-		d, err := injectTraceIntoDocument(injectCtx, doc)
+		d, err := injectTraceIntoDocument(injectCtx, doc, c.propagator)
 		if err != nil {
 			return nil, fmt.Errorf("otelmongo: inject trace: %w", err)
 		}
@@ -129,7 +133,7 @@ func (c *Collection) Find(ctx context.Context, filter any, opts ...*options.Find
 	if err != nil {
 		return nil, err
 	}
-	return &Cursor{Cursor: cursor, parentCtx: ctx}, nil
+	return &Cursor{Cursor: cursor, parentCtx: ctx, tracer: c.tracer, propagator: c.propagator}, nil
 }
 
 // FindOne executes a find command returning at most one document.
@@ -143,7 +147,7 @@ func (c *Collection) FindOne(ctx context.Context, filter any, opts ...*options.F
 	_, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
 	sr := c.Collection.FindOne(ctx, filter, opts...)
 	deliverSpan.End()
-	return &SingleResult{SingleResult: sr, span: span, ctx: ctx}
+	return &SingleResult{SingleResult: sr, span: span, ctx: ctx, propagator: c.propagator}
 }
 
 // UpdateOne injects the current trace context into the update and replaces the document's _oteltrace.
@@ -157,7 +161,7 @@ func (c *Collection) UpdateOne(ctx context.Context, filter any, update any, opts
 
 	injectCtx, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
 	defer deliverSpan.End()
-	updateWithTrace, err := injectTraceIntoUpdate(injectCtx, update)
+	updateWithTrace, err := injectTraceIntoUpdate(injectCtx, update, c.propagator)
 	if err != nil {
 		span.AddEvent("otelmongo.trace_inject_failed",
 			trace.WithAttributes(attribute.String("error.message", err.Error())))
@@ -182,7 +186,7 @@ func (c *Collection) UpdateMany(ctx context.Context, filter any, update any, opt
 
 	injectCtx, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
 	defer deliverSpan.End()
-	updateWithTrace, err := injectTraceIntoUpdate(injectCtx, update)
+	updateWithTrace, err := injectTraceIntoUpdate(injectCtx, update, c.propagator)
 	if err != nil {
 		span.AddEvent("otelmongo.trace_inject_failed",
 			trace.WithAttributes(attribute.String("error.message", err.Error())))
@@ -207,7 +211,7 @@ func (c *Collection) ReplaceOne(ctx context.Context, filter any, replacement any
 
 	injectCtx, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
 	defer deliverSpan.End()
-	replacementWithTrace, err := injectTraceIntoDocument(injectCtx, replacement)
+	replacementWithTrace, err := injectTraceIntoDocument(injectCtx, replacement, c.propagator)
 	if err != nil {
 		return nil, fmt.Errorf("otelmongo: inject trace: %w", err)
 	}
@@ -310,7 +314,7 @@ func (c *Collection) Aggregate(ctx context.Context, pipeline any, opts ...*optio
 	if err != nil {
 		return nil, err
 	}
-	return &Cursor{Cursor: cursor, parentCtx: ctx}, nil
+	return &Cursor{Cursor: cursor, parentCtx: ctx, tracer: c.tracer, propagator: c.propagator}, nil
 }
 
 // UpdateByID updates one document by _id, injecting the current trace into the update.
@@ -324,7 +328,7 @@ func (c *Collection) UpdateByID(ctx context.Context, id any, update any, opts ..
 
 	injectCtx, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
 	defer deliverSpan.End()
-	updateWithTrace, err := injectTraceIntoUpdate(injectCtx, update)
+	updateWithTrace, err := injectTraceIntoUpdate(injectCtx, update, c.propagator)
 	if err != nil {
 		span.AddEvent("otelmongo.trace_inject_failed",
 			trace.WithAttributes(attribute.String("error.message", err.Error())))
@@ -364,7 +368,7 @@ func (c *Collection) BulkWrite(ctx context.Context, models []mongo.WriteModel, o
 
 	injectCtx, deliverSpan := c.startDeliverSpan(ctx, dbName, collName)
 	defer deliverSpan.End()
-	injected, err := buildBulkWriteModelsWithTrace(injectCtx, models)
+	injected, err := buildBulkWriteModelsWithTrace(injectCtx, models, c.propagator)
 	if err != nil {
 		recordSpanError(span, err)
 		return nil, err
@@ -411,6 +415,8 @@ func (c *Collection) Watch(ctx context.Context, pipeline interface{}, opts ...*o
 	}
 	return &ChangeStream{
 		ChangeStream:    cs,
+		tracer:          c.tracer,
+		propagator:      c.propagator,
 		spanName:        spanName,
 		baseSpanOpts:    baseSpanOpts,
 		deliverTracer:   c.deliverTracer,

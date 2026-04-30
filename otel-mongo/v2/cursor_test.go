@@ -9,10 +9,14 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 )
+
+// stdProp is the standard W3C propagator used across cursor tests.
+var stdProp = propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{})
 
 // buildDocWithTrace creates a raw BSON document that contains an _oteltrace field
 // matching the span context in ctx.
@@ -20,7 +24,7 @@ func buildDocWithTrace(t *testing.T, ctx context.Context) bson.Raw { //nolint:re
 	t.Helper()
 	enableTracing(t)
 	doc := bson.D{{Key: "value", Value: "test"}}
-	injected, err := injectTraceIntoDocument(ctx, doc)
+	injected, err := injectTraceIntoDocument(ctx, doc, stdProp)
 	require.NoError(t, err)
 	raw, err := bson.Marshal(injected)
 	require.NoError(t, err)
@@ -28,6 +32,8 @@ func buildDocWithTrace(t *testing.T, ctx context.Context) bson.Raw { //nolint:re
 }
 
 func TestCursorDecodeWithContext_ExtractsTrace(t *testing.T) {
+	otel.SetTextMapPropagator(stdProp)
+
 	sr := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
 	otel.SetTracerProvider(tp)
@@ -47,7 +53,7 @@ func TestCursorDecodeWithContext_ExtractsTrace(t *testing.T) {
 
 	require.True(t, cursor.Next(context.Background()))
 
-	c := &Cursor{Cursor: cursor, parentCtx: ctx}
+	c := &Cursor{Cursor: cursor, parentCtx: ctx, tracer: tracer, propagator: stdProp}
 
 	var result bson.D
 	_, err = c.DecodeWithContext(context.Background(), &result)
@@ -73,6 +79,7 @@ func TestCursorDecodeWithContext_NoTrace(t *testing.T) {
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
 	otel.SetTracerProvider(tp)
 	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+	tracer := tp.Tracer("test")
 
 	// Document without trace metadata.
 	raw, err := bson.Marshal(bson.D{{Key: "x", Value: 1}})
@@ -85,7 +92,7 @@ func TestCursorDecodeWithContext_NoTrace(t *testing.T) {
 	require.True(t, cursor.Next(context.Background()))
 
 	baseCtx := context.Background()
-	c := &Cursor{Cursor: cursor, parentCtx: baseCtx}
+	c := &Cursor{Cursor: cursor, parentCtx: baseCtx, tracer: tracer, propagator: stdProp}
 
 	var result bson.D
 	_, err = c.DecodeWithContext(baseCtx, &result)
@@ -105,6 +112,8 @@ func TestCursorDecodeWithContext_NoTrace(t *testing.T) {
 }
 
 func TestSingleResultDecodeLinksOriginTrace(t *testing.T) {
+	otel.SetTextMapPropagator(stdProp)
+
 	sr := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
 	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
@@ -121,7 +130,7 @@ func TestSingleResultDecodeLinksOriginTrace(t *testing.T) {
 
 	wrapped := &SingleResult{
 		SingleResult: mongoSR,
-		tracer:       tracer,
+		propagator:   stdProp,
 		span:         findSpan,
 		ctx:          ctx,
 	}
@@ -149,6 +158,8 @@ func TestSingleResultDecodeLinksOriginTrace(t *testing.T) {
 }
 
 func TestSingleResultTraceContext(t *testing.T) {
+	otel.SetTextMapPropagator(stdProp)
+
 	sr := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
 	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
@@ -165,7 +176,7 @@ func TestSingleResultTraceContext(t *testing.T) {
 
 	wrapped := &SingleResult{
 		SingleResult: mongoSR,
-		tracer:       tracer,
+		propagator:   stdProp,
 		span:         findSpan,
 		ctx:          ctx,
 	}
@@ -195,6 +206,8 @@ func TestCursorDecode(t *testing.T) {
 }
 
 func TestSingleResultRaw(t *testing.T) {
+	otel.SetTextMapPropagator(stdProp)
+
 	sr := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
 	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
@@ -209,7 +222,7 @@ func TestSingleResultRaw(t *testing.T) {
 
 	wrapped := &SingleResult{
 		SingleResult: mongoSR,
-		tracer:       tracer,
+		propagator:   stdProp,
 		span:         findSpan,
 		ctx:          ctx,
 	}
@@ -231,6 +244,8 @@ func TestSingleResultRaw(t *testing.T) {
 }
 
 func TestSingleResultDecodeSpanEndedOnce(t *testing.T) {
+	otel.SetTextMapPropagator(stdProp)
+
 	sr := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
 	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
@@ -245,7 +260,7 @@ func TestSingleResultDecodeSpanEndedOnce(t *testing.T) {
 
 	wrapped := &SingleResult{
 		SingleResult: mongoSR,
-		tracer:       tracer,
+		propagator:   stdProp,
 		span:         findSpan,
 		ctx:          ctx,
 	}

@@ -33,8 +33,10 @@ func TestCursorDecodeWithContext_NewTraceIDAndLinksOriginTrace(t *testing.T) {
 	originSpanCtx := originSpan.SpanContext()
 	originSpan.End()
 
+	prop := otel.GetTextMapPropagator()
+
 	// Build a cursor document that contains the origin trace metadata.
-	injected, err := injectTraceIntoDocument(originCtx, bson.D{{Key: "field", Value: "v"}})
+	injected, err := injectTraceIntoDocument(originCtx, bson.D{{Key: "field", Value: "v"}}, prop)
 	require.NoError(t, err, "injectTraceIntoDocument")
 	rawDoc, err := bson.Marshal(injected)
 	require.NoError(t, err, "bson.Marshal injected doc")
@@ -44,7 +46,7 @@ func TestCursorDecodeWithContext_NewTraceIDAndLinksOriginTrace(t *testing.T) {
 	defer func() { _ = cur.Close(context.Background()) }()
 	require.True(t, cur.Next(context.Background()), "expected cursor.Next=true")
 
-	wrapped := &Cursor{Cursor: cur, parentCtx: context.Background()}
+	wrapped := &Cursor{Cursor: cur, parentCtx: context.Background(), tracer: tracer, propagator: prop}
 
 	var out bson.D
 	enrichedCtx, err := wrapped.DecodeWithContext(context.Background(), &out)
